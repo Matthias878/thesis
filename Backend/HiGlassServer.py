@@ -1,5 +1,10 @@
 #needs Docker Desktop installed and running on the pc
 import subprocess
+import os
+import sys
+
+
+FILE_PATH = "C:/Stuff/BA/Backend/McoolOutput/finishedFile.mcool"
 
 def run(cmd):
     subprocess.run(cmd, shell=True, check=False)
@@ -31,16 +36,22 @@ else:
     # if it exists but is stopped, start it
     run("docker start higlass")
 
-# 2.5 Upload file to container
-run('docker cp "C:/Stuff/BA/Backend/McoolOutput/finishedFile.mcool" higlass:/tmp/file.mcool')
-   
+    
+# 3. Check if file exists before ingesting
+if not os.path.isfile(FILE_PATH):
+    print(f"no .mcool file at: {FILE_PATH} please upload and convert a file before starting the server")
+else:
 
-# 3. Delete old tileset (ignore errors)
-run(
-    "docker exec -it higlass python higlass-server/manage.py delete_tileset --uuid finishedfile"
-)
+    # 2.5 Upload file to container
+    run('docker cp "C:/Stuff/BA/Backend/McoolOutput/finishedFile.mcool" higlass:/tmp/file.mcool')
+    
 
-# 4. Ingest tileset
-run(
-    "docker exec -it higlass python higlass-server/manage.py ingest_tileset --filename /tmp/file.mcool --filetype cooler --datatype matrix --uid finishedfile --name finishedFile"
-)
+    # 3. Delete old tileset (ignore errors)
+    run(
+        "docker exec -it higlass python higlass-server/manage.py delete_tileset --uuid finishedfile"
+    )
+
+    # 4. Ingest tileset
+    run(
+        "docker exec -it higlass python higlass-server/manage.py ingest_tileset --filename /tmp/file.mcool --filetype cooler --datatype matrix --uid finishedfile --name finishedFile"
+    )

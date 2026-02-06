@@ -25,3 +25,18 @@ do
 in my-react-app
 npm run dev
 in folder to run server locally
+
+
+
+
+--- TO Start:
+start Docker Engine
+
+run in the frontend folder:
+
+docker build -t my-frontend .
+docker run -p 8080:80 my-frontend
+
+Then open the website
+
+http://localhost:8080

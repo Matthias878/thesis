@@ -2,8 +2,8 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 import shutil
 import os
-import FileConverter
-import HiGlassServer
+import FileConverter #alle imports werden einmal executed beim laden - main nicht
+import HiGlassServer # important, starts the server 
 import DimensionReducer
 import NPYtoMCOOLconverter
 import subprocess
