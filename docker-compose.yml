@@ -55,7 +55,7 @@ services:
       done
 
   frontend:
-    profiles: ["dev"]
+    profiles: ["prod"]
     build:
       context: ./Frontend
     ports:
