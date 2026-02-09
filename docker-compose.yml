@@ -1,0 +1,79 @@
+services:
+  backend:
+    build: ./Backend
+    container_name: backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./Backend:/app
+      - ./Backend/McoolOutput:/app/McoolOutput
+    depends_on:
+      - higlass
+
+  higlass:
+    image: higlass/higlass-docker
+    container_name: higlass
+    ports:
+      - "8989:80"
+    volumes:
+      - ./Backend/McoolOutput:/data
+
+  ingest_watcher:
+    image: higlass/higlass-docker
+    depends_on:
+      - higlass
+    volumes:
+      - ./Backend/McoolOutput:/data
+    restart: unless-stopped
+    entrypoint: ["/bin/bash", "-lc"]
+    command: >
+      set -e;
+      echo "Waiting for higlass...";
+      for i in {1..120}; do
+        curl -fsS http://higlass:80/ >/dev/null && break || true;
+        sleep 1;
+      done;
+
+      echo "Watching /data for finishedFile.mcool.done ...";
+      while true; do
+        if [ -f /data/finishedFile.mcool.done ] && [ -f /data/finishedFile.mcool ]; then
+          echo "Trigger found. Ingesting...";
+
+          rm -f /data/finishedFile.mcool.done;
+
+          python higlass-server/manage.py delete_tileset --uuid finishedfile || true;
+          python higlass-server/manage.py ingest_tileset \
+            --filename /data/finishedFile.mcool \
+            --filetype cooler \
+            --datatype matrix \
+            --uid finishedfile \
+            --name finishedFile;
+
+          echo "Ingest done.";
+        fi;
+        sleep 2;
+      done
+
+  frontend:
+    profiles: ["dev"]
+    build:
+      context: ./Frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    command: ["sh", "-c", "nginx -g 'daemon off;'"]
+
+  frontend-dev:
+    profiles: ["dev"]
+    build:
+      context: ./Frontend
+      target: dev
+    ports:
+      - "8080:3000"
+    volumes:
+      - ./Frontend:/app
+      - /app/node_modules
+    command: ["npm", "run", "dev"]
+    depends_on:
+      - backend

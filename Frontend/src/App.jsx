@@ -161,7 +161,7 @@ function App() {
   const ConvertLastUploadedFile = useCallback(async () => {
     addLog("convert: started");
     try {
-      const convertResponse = await fetch("http://127.0.0.1:8000/convert", { method: "POST" });
+      const convertResponse = await fetch("http://127.0.0.1:8000/convert_pt", { method: "POST" });
 
       if (!convertResponse.ok) {
         const body = await convertResponse.text().catch(() => "");

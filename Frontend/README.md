@@ -34,9 +34,8 @@ start Docker Engine
 
 run in the frontend folder:
 
-docker build -t my-frontend .
-docker run -p 8080:80 my-frontend
+docker build -t my-frontend . (only first time - after cloning)
+docker run -p 8080:80 my-frontend (every time)
 
-Then open the website
-
+Then open the website:
 http://localhost:8080

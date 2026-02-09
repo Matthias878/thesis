@@ -2,8 +2,8 @@
 
 import numpy as np
 import os
-import tkinter as tk
-from tkinter import filedialog
+#import tkinter as tk
+#from tkinter import filedialog
 
 ##gives a file dialog to choose a .npy file
 #def choose_file(initialdir=None, filetypes=(("NumPy files", "*.npy"), ("All files", "*.*")), multiple=False, title="Select file"):

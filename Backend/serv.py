@@ -1,9 +1,12 @@
+#TODO files need to written as finishedFile.mcool and then when done writing as finsihedFile.mcool.done - to avoid ingestion during writing
+
+
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 import shutil
 import os
 import FileConverter #alle imports werden einmal executed beim laden - main nicht
-import HiGlassServer # important, starts the server 
+#import HiGlassServer # important, starts the server 
 import DimensionReducer
 import NPYtoMCOOLconverter
 import subprocess
@@ -66,8 +69,8 @@ async def upload_file(file: UploadFile = File(...)):
 
 
 # Trigger conversion endpoint
-@app.post("/convert")
-async def convert_file():
+@app.post("/convert_pt")
+async def convert_file_pt():
     file_path = os.path.join(UPLOAD_DIR, "current_input.pt")
     
     if not os.path.exists(file_path):
@@ -83,7 +86,7 @@ async def convert_file():
 
 # Trigger npy conversion endpoint
 @app.post("/convert_npy")
-async def convert_file():
+async def convert_file_npy():
     file_path = os.path.join(UPLOAD_DIR, "current_input.npy")
     
     if not os.path.exists(file_path):

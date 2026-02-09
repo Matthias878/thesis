@@ -1,28 +1,22 @@
-Backend soll ein öffentlicher fastAPI server sein, der gesendete Dateien erstmal lokal speichert
+----------------------------------
+
+serv.py is the basic server script
+
+Backend soll ein öffentlicher fastAPI server sein, der gesendeten Dateien erstmal lokal speichert
 
 oder auf command zu .mcool umwandelt
 
 oder auf command den Dockerserver startet
 
-...
+... 
 
-
+------------dev locally - depreciated
 run by going:
 
  uvicorn serv:app --reload in the Backend folder (Docker Desktop needs to be started)
 
-pip install python-multipart
-
-pip install fastapi uvicorn
-
-
-FileConverter converts on execution the file at the standard path, but you can give him a special path as well
-
-serv.py is the basic server script
-----------------------
+---------------------- depreciated The following commands are all done in HiGlassServer.py -- Docker Desktop needs to be open
 Docker backend uses .mcool file to create a higlass server that can be used be the frontend
-
- (The following commands are all done in HiGlassServer.py -- Docker Desktop needs to be open)
 
 
 #pull higlass docker image
@@ -50,3 +44,4 @@ docker exec -it higlass python higlass-server/manage.py ingest_tileset --filenam
 ##upload and ingest in one?
 docker exec -it higlass python higlass-server/manage.py ingest_tileset --filename /data/finishedFile.mcool --filetype cooler --datatype matrix --uid finishedfile --name finishedFile
 
+------------------------
