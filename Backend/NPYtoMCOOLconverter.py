@@ -1,4 +1,4 @@
-# --- Convert dense .npy matrix (NxN) to .cool and .mcool format ---
+# --- Convert dense .npy matrix (NxN) to .cool and .mcool format --- //
 
 import numpy as np
 import pandas as pd

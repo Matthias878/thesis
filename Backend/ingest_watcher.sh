@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+
+
 echo "SHELL=$0  BASH_VERSION=${BASH_VERSION:-no}"
 
 
@@ -53,7 +55,7 @@ while true; do
     echo "Renaming to:   $mcool_path"
     mv "$done_path" "$mcool_path"
 
-    
+
 
     echo "Ingesting: file=$mcool_path uid=$uid name=$name"
     python higlass-server/manage.py ingest_tileset \

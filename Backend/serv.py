@@ -1,4 +1,4 @@
-#TODO files need to written as finishedFile.mcool and then when done writing as finsihedFile.mcool.done - to avoid ingestion during writing
+#TODO files need to written as finishedFile.mcool and then when done writing as finsihedFile.mcool.done - to avoid ingestion during writing //
 
 
 from fastapi import FastAPI, UploadFile, File

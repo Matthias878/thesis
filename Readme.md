@@ -3,6 +3,7 @@ Step 1: run '
         docker compose --profile prod up --build
         ' in the folder (for development: docker compose --profile dev up --build) - ?does not work? - still need docker up/down?
 
+only pt files of format NxNx4x4 and npy files of format Nx3xNx4 are accepted
 
 Info:
 

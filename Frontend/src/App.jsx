@@ -439,7 +439,7 @@ export default function App() {
             }}
           >
             <HiGlassComponent key={viewerKey} viewConfig={viewConfig} options={{ bounded: true }} />
-          </div>
+          </div>git 
         </main>
       </div>
     </div>
