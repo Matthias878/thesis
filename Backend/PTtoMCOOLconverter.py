@@ -1,5 +1,4 @@
-#Give me a window that allows the user to choose a pytorch tensor (pickeled) show a simple heatmap from it
-# only for .pt files
+#only for .pt files
 
 import torch
 import numpy as np
@@ -8,6 +7,19 @@ import os
 import pandas as pd
 import cooler
 from cooler import zoomify_cooler
+import re
+
+def next_ptfile_path(out_dir="McoolOutput", prefix="ptfile_", ext=".mcool"):
+    os.makedirs(out_dir, exist_ok=True)
+
+    max_idx = 0
+    for name in os.listdir(out_dir):
+        # match: ptfile_<number>.mcool
+        m = re.fullmatch(rf"{re.escape(prefix)}(\d+){re.escape(ext)}", name)
+        if m:
+            max_idx = max(max_idx, int(m.group(1)))
+
+    return os.path.join(out_dir, f"{prefix}{max_idx + 1}{ext}")
 
 
 def load_pt_file(file_path):
@@ -100,7 +112,8 @@ if __name__ == "__main__": #-1 return code means incorrect shape -2 means failed
 
     # 4. Actual converting
     input_path = "temp/temp.cool"
-    output_path = "McoolOutput/finishedFile.mcool"
+    output_path = next_ptfile_path("McoolOutput", prefix="ptfile_", ext=".mcool")
+    print(f"Output will be saved to: {output_path}")
 
     print("Creating cooler file...")
 

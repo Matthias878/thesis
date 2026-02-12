@@ -1,19 +1,38 @@
 # --- Convert dense .npy matrix (NxN) to .cool and .mcool format ---
 
-
-
 import numpy as np
 import pandas as pd
 import cooler
 import scipy.sparse as sp
 import subprocess
+import os
+import re
+
+def next_npyfile_base(out_dir="McoolOutput", prefix="npyfile_"):
+    os.makedirs(out_dir, exist_ok=True)
+
+    max_idx = 0
+    for name in os.listdir(out_dir):
+        m = re.fullmatch(rf"{re.escape(prefix)}(\d+)\.(cool|mcool)", name)
+        if m:
+            max_idx = max(max_idx, int(m.group(1)))
+
+    return os.path.join(out_dir, f"{prefix}{max_idx + 1}")
+
 
 if __name__ == "__main__":
 # --- inputs ---
     npy_path = "uploads/current_input.npy"
     binsize = 10000            # choose a genomic bin size that makes sense
     chrom = "chr1"
-    cool_path = "McoolOutput/finishedFile.cool"
+    base_path = next_npyfile_base("McoolOutput", prefix="npyfile_")
+    cool_path = base_path + ".cool"
+    mcool_path = base_path + ".mcool"   
+
+    print(f"Output will be saved as:")
+    print(f"  {cool_path}")
+    print(f"  {mcool_path}")
+
     
     # --- load dense matrix ---
     A = np.load(npy_path)
@@ -47,5 +66,9 @@ if __name__ == "__main__":
     )
     
     # Convert .cool -> .mcool (multires)
-    subprocess.run(["cooler", "zoomify", cool_path], check=True)
+    subprocess.run(
+    ["cooler", "zoomify", cool_path, "-o", mcool_path],
+    check=True
+    )
+
     # produces out.10000.mcool by default

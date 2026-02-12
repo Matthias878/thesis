@@ -5,12 +5,16 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 import shutil
 import os
-import FileConverter #alle imports werden einmal executed beim laden - main nicht
+#import PTtoMCOOLconverter #alle imports werden einmal executed beim laden - main nicht
 #import HiGlassServer # important, starts the server 
-import DimensionReducer
-import NPYtoMCOOLconverter
+#import DimensionReducer
+#import NPYtoMCOOLconverter
 import subprocess
 import numpy as np
+from pathlib import Path; 
+
+
+
 
 app = FastAPI()
 
@@ -46,7 +50,7 @@ async def upload_file(file: UploadFile = File(...)):
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         # setze einfachen Status, den das Frontend abfragen kann
-        statuses["current_input"] = "saved file"
+        statuses["current_input"] = "saved pt file"
         #TODO check shape
     elif ext.lower() in (".npy"):
         file_path = os.path.join(UPLOAD_DIR, "current_input" + ext.lower())
@@ -59,6 +63,7 @@ async def upload_file(file: UploadFile = File(...)):
             #shape = obj.shape
             statuses["current_input"] = "saved npy tensor with shape " + str(obj.shape) + "next Step: convert to mcool file"
         except Exception as e:
+            statuses["current_input"] = "Failed to load npy file: "
             return {"Failed to load npy file"}
     else:
         statuses["current_input"] = "error: invalid file type"
@@ -78,7 +83,7 @@ async def convert_file_pt():
     
     # Run FileConverter.py on the saved file
     statuses["current_input"] = "converting"
-    subprocess.run(["python", "FileConverter.py", file_path])
+    subprocess.run(["python", "PTtoMCOOLconverter.py", file_path])
     statuses["current_input"] = "converted"
     
     return {"status": "success", "message": "converted pt to mcool file"}
@@ -104,17 +109,28 @@ async def convert_file_npy():
 # Trigger conversion endpoint
 @app.post("/reupload")
 async def reupload_file():
-    file_path = os.path.join(UPLOAD_DIR, "current_input.pt")
-    
-    if not os.path.exists(file_path):
-        return {"status": "error", "message": "No file to reupload"}
-    
-    # Run FileConverter.py on the saved file
+    output_dir = Path("McoolOutput")
+
+    if not output_dir.exists():
+        return {"status": "error", "message": "Output folder not found"}
+
+    mcool_files = list(output_dir.glob("*.mcool"))
+
+    if not mcool_files:
+        return {"status": "error", "message": "No .mcool files found"}
+
     statuses["current_input"] = "uploading"
-    subprocess.run(["python", "HiGlassServer.py"])
-    statuses["current_input"] = "reuploaded"
-    
-    return {"status": "success", "message": "File reupload triggered"}
+
+    for file in mcool_files:
+        new_name = file.with_suffix(file.suffix + ".done")
+        file.replace(new_name)
+
+    statuses["current_input"] = "reupload should be imminent"
+
+    return {
+        "status": "success",
+        "message": f"{len(mcool_files)} file(s) renamed"
+    }
 
 #Check format npy
 def check_npy_format(path):
@@ -132,3 +148,39 @@ def check_npy_format(path):
 async def get_status(key: str):
     """Einfache Polling-Endpoint: Frontend fragt regelmäßig /status/current_input ab."""
     return {"status": statuses.get(key, "idle")}
+
+
+
+@app.get("/mcool-files")
+async def list_mcool_files():
+    # Ensure folder exists
+    os.makedirs(REUPLOAD_DIR, exist_ok=True)
+
+    raw = os.listdir(REUPLOAD_DIR)
+
+    in_progress = []
+    done = []
+
+    for name in raw:
+        # done files: finishedFile.mcool.done  ->  finishedFile
+        if name.endswith(".mcool.done"):
+            done.append(name[:-len(".mcool.done")])
+            continue
+
+        # in-progress files: finishedFile.mcool -> finishedFile
+        # (but exclude any accidental ".mcool.done" already handled above)
+        if name.endswith(".mcool"):
+            in_progress.append(name[:-len(".mcool")])
+
+    # stable output
+    in_progress = sorted(set(in_progress))
+    done = sorted(set(done))
+
+    # combined set (names that exist in either state)
+    all_names = sorted(set(in_progress) | set(done))
+
+    return {
+        "all": all_names,
+        "in_progress": in_progress,
+        "done": done,
+    }

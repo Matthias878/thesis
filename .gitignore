@@ -1,0 +1,10 @@
+notes/
+
+unused/
+
+Backend/uploads/current_input.pt
+Backend/uploads/current_input.npy
+
+
+Backend/McoolOutput/finishedFile.cool
+Backend/McoolOutput/finishedFile.mcool

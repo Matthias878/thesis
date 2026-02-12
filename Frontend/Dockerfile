@@ -1,28 +1,24 @@
 # ---------- build stage ----------
 FROM node:20-alpine AS build
-
 WORKDIR /app
-
-# install deps first (better caching)
 COPY package*.json ./
 RUN npm ci
-
-# copy source and build
 COPY . .
 RUN npm run build
 
+# ---------- dev stage ----------
+FROM node:20-alpine AS dev
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+EXPOSE 3000
+CMD ["npm","run","dev","--","--host","0.0.0.0"]
 
 # ---------- runtime stage ----------
-FROM nginx:alpine
-
-# remove default nginx config
+FROM nginx:alpine AS prod
 RUN rm /etc/nginx/conf.d/default.conf
-
-# copy your own config
 COPY nginx.conf /etc/nginx/conf.d/default.conf
-
-# copy built frontend
 COPY --from=build /app/dist /usr/share/nginx/html
-
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
