@@ -1,5 +1,50 @@
+version: "3.9"
 
-services: 
+services:
+
+  cleanup:
+    image: alpine
+    container_name: cleanup_mcooloutput
+    volumes:
+      - ./Backend/McoolOutput:/data
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+
+        # Delete everything in /data except the directory A
+        find /data -mindepth 1 -maxdepth 1 ! -name A -exec rm -rf {} +
+
+        SRC="/data/A"
+        DST="/data"
+        PICK="finishedfile.mcool"
+        NEW_NAME="finishedfile.mcool.done"
+        SIZES="testchromome.chrom.sizes"
+
+        mkdir -p "$$DST"
+
+        # Copy finishedfile.mcool -> /data/finishedfile.mcool.done
+        f="$$SRC/$$PICK"
+        [ -f "$$f" ] || { echo "Missing file: $$f"; exit 1; }
+        cp -f "$$f" "$$DST/$$NEW_NAME"
+
+        # Copy testchromome.chrom.sizes -> /data/testchromome.chrom.sizes
+        s="$$SRC/$$SIZES"
+        [ -f "$$s" ] || { echo "Missing file: $$s"; exit 1; }
+        cp -f "$$s" "$$DST/$$SIZES"
+    restart: "no"
+
+  higlass:
+    image: higlass/higlass-docker
+    container_name: higlass
+    ports:
+      - "8989:80"
+    volumes:
+      - ./Backend/McoolOutput:/data
+    depends_on:
+      - cleanup
+
   backend:
     build: ./Backend
     container_name: backend
@@ -9,29 +54,21 @@ services:
       - ./Backend:/app
       - ./Backend/McoolOutput:/app/McoolOutput
     depends_on:
+      - cleanup
       - higlass
 
-  higlass:
+  ingest_watcher:
     image: higlass/higlass-docker
-    container_name: higlass
-    ports:
-      - "8989:80"
+    depends_on:
+      - cleanup
+      - higlass
     volumes:
       - ./Backend/McoolOutput:/data
-
-  ingest_watcher:
-   image: higlass/higlass-docker
-   depends_on:
-     - higlass
-   volumes:
-     - ./Backend/McoolOutput:/data
-     - ./Backend/ingest_watcher.sh:/ingest_watcher.sh:ro
-   restart: unless-stopped
-   entrypoint: ["/bin/bash", "/ingest_watcher.sh"]
-
+      - ./Backend/ingest_watcher.sh:/ingest_watcher.sh:ro
+    restart: unless-stopped
+    entrypoint: ["/bin/bash", "/ingest_watcher.sh"]
 
   frontend:
-    profiles: ["prod"]
     build:
       context: ./Frontend
     ports:
@@ -39,17 +76,3 @@ services:
     depends_on:
       - backend
     command: ["sh", "-c", "nginx -g 'daemon off;'"]
-
-  frontend-dev:
-    profiles: ["dev"]
-    build:
-      context: ./Frontend
-      target: dev
-    ports:
-      - "8080:3000"
-    volumes:
-      - ./Frontend:/app
-      - /app/node_modules
-    command: ["npm","run","dev","--","--host","0.0.0.0"]
-    depends_on:
-      - backend

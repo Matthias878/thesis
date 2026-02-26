@@ -2,444 +2,443 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { HiGlassComponent } from "higlass";
 import "higlass/dist/hglib.css";
 
+import { HIGLASS_SERVER, ts } from "./config";
+import ConsoleBox from "./components/ConsoleBox";
+import FileUpload from "./components/FileUpload";
+import LogoOverlay from "./components/LogoOverlay";
+import { useBackendStatus } from "./api/StatusSystem";
+import { useTilesets } from "./higlass/useTilesets";
+import { useCoordsWatchdog, useHoverCellWatchdog } from "./higlass/useCoordsWatchdog";
+import { buildHeatmapViewConfig, buildHeatmapWithTracksViewConfig } from "./higlass/viewConfig";
+import { convertNpy, convertPt, reupload, uploadFileWithNewUid, uploadlogoTrackFile } from "./api/higlassApi";
 
-const API_BACKEND = "http://127.0.0.1:8000";
-const HIGLASS_SERVER = "http://localhost:8989/api/v1";
+import {page,topbar,advancedWrap,advancedCard,advancedRow,advancedRowLeft,advancedRowRight,advancedMeta,serverText,backendMeta,backendDot,backendDotSmall,backendTextStyle,divider,shell,sidebar,main,button,select,labelGrid,labelHint,sectionTitle,smallMuted,uploadHint,statusLineOuter,statusEllipsis,backendRowInStatus,backendTextEllipsis,hoverBlock,hoverLine,viewerFrame,advancedButton,
+} from "./styles/appStyles";
 
-function ts() {
-  return new Date().toLocaleTimeString();
-}
-
-function ConsoleBox({ lines }) {
-  const ref = useRef(null);
-  useEffect(() => {
-    if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
-  }, [lines]);
-
-  return (
-    <pre
-      ref={ref}
-      style={{
-        margin: 0,
-        padding: 12,
-        borderRadius: 10,
-        background: "#0b0f14",
-        color: "#9ef7a6",
-        fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-        fontSize: 12,
-        lineHeight: 1.35,
-        maxHeight: 220,
-        overflow: "auto",
-        border: "1px solid rgba(255,255,255,0.08)",
-        whiteSpace: "pre-wrap",
-      }}
-    >
-      {lines.join("\n")}
-    </pre>
-  );
-}
-
-function FileUpload({ file, setFile, onUpload, busy }) {
-  return (
-    <div style={{ display: "grid", gap: 10 }}>
-      <label style={{ display: "grid", gap: 6 }}>
-        <span style={{ color: "rgba(255,255,255,0.75)", fontSize: 12 }}>Datei auswählen</span>
-        <input
-          type="file"
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-          style={{
-            padding: 10,
-            borderRadius: 10,
-            background: "rgba(255,255,255,0.06)",
-            border: "1px solid rgba(255,255,255,0.12)",
-            color: "white",
-          }}
-        />
-      </label>
-
-      <button
-        onClick={onUpload}
-        disabled={!file || busy}
-        style={{
-          padding: "10px 12px",
-          borderRadius: 10,
-          border: "1px solid rgba(255,255,255,0.14)",
-          background: !file || busy ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.10)",
-          color: "white",
-          cursor: !file || busy ? "not-allowed" : "pointer",
-          fontWeight: 600,
-        }}
-        title={!file ? "Bitte erst eine Datei auswählen" : ""}
-      >
-        {busy ? "Lade hoch..." : "Hochladen"}
-      </button>
-
-      {file && (
-        <div style={{ color: "rgba(255,255,255,0.70)", fontSize: 12 }}>
-          Ausgewählt: <span style={{ color: "white" }}>{file.name}</span>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function buildViewConfig(tilesetUid) {
-  return {
-    editable: true,
-    trackSourceServers: [HIGLASS_SERVER, "https://higlass.io/api/v1"],
-    views: [
-      {
-        uid: "view-1",
-        layout: { w: 12, h: 12, x: 0, y: 0 },
-        tracks: {
-          center: [
-            {
-              type: "heatmap",
-              uid: "heatmap-track-1",
-              tilesetUid,
-              server: HIGLASS_SERVER,
-              options: {
-                labelPosition: "bottomRight",
-                labelText: tilesetUid,
-                colorRange: ["white", "rgba(245, 166, 35, 1.0)", "rgba(208, 2, 27, 1.0)", "black"],
-                maxZoom: null,
-              },
-            },
-          ],
-        },
-      },
-    ],
-  };
-}
+const cellValue = (v) =>
+  v instanceof Error
+    ? `Error: ${v.message}\n${v.stack ?? ""}`
+    : v === undefined
+    ? "undefined"
+    : v === null
+    ? "null"
+    : String(v);
 
 export default function App() {
-  const [logs, setLogs] = useState([`[${ts()}] app started`]);
-  const addLog = useCallback((line) => setLogs((p) => [...p, `[${ts()}] ${line}`]), []);
-
-  const [busy, setBusy] = useState(false);
-  const [file, setFile] = useState(null);
-
-  const [availableUuids, setAvailableUuids] = useState([]);
-  const [selectedUuid, setSelectedUuid] = useState("finishedfile"); // there is no default
-  const [showUuidPicker, setShowUuidPicker] = useState(false);
-
-  const [viewerKey, setViewerKey] = useState(0);
-  const viewConfig = useMemo(() => buildViewConfig(selectedUuid), [selectedUuid]);
-
-  //convert npy
-  const ConvertNPYFile = useCallback(async () => {
-    addLog("convert npy called");
-    try {
-      const convertResponse = await fetch("http://127.0.0.1:8000/convert_npy", { method: "POST" });
-
-      if (!convertResponse.ok) {
-        const body = await convertResponse.text().catch(() => "");
-        addLog(
-          `convert failed: ${convertResponse.status} ${convertResponse.statusText}${
-            body ? ` | ${body}` : ""
-          }`
-        );
-        return;
-      }
-
-      const convertResult = await convertResponse.json();
-      addLog(`convert result: ${JSON.stringify(convertResult)}`);
-      console.log(convertResult);
-    } catch (e) {
-      addLog(`convert error: ${String(e)}`);
-    }
-  }, [addLog]);
-
-  //convert pt
-  const ConverPTFile = useCallback(async () => {
-    addLog("convert pt called");
-    try {
-      const convertResponse = await fetch("http://127.0.0.1:8000/convert_pt", { method: "POST" });
-
-      if (!convertResponse.ok) {
-        const body = await convertResponse.text().catch(() => "");
-        addLog(
-          `convert failed: ${convertResponse.status} ${convertResponse.statusText}${
-            body ? ` | ${body}` : ""
-          }`
-        );
-        return;
-      }
-
-      const convertResult = await convertResponse.json();
-      addLog(`convert result: ${JSON.stringify(convertResult)}`);
-      console.log(convertResult);
-    } catch (e) {
-      addLog(`convert error: ${String(e)}`);
-    }
-  }, [addLog]);
-
-  //turn .mcool into .mcool.done files
-  
-  const ReuploadFile = useCallback(async () => {
-    addLog("turning .mcool into .mcool.done and uploading as new uuIDs called");
-    try {
-      const r = await fetch("http://127.0.0.1:8000/reupload", { method: "POST" });
-
-      if (!r.ok) {
-        const body = await r.text().catch(() => "");
-        addLog(`reupload failed: ${r.status} ${r.statusText}${body ? ` | ${body}` : ""}`);
-        return;
-      }
-
-      const j = await r.json();
-      addLog(`reupload result: ${JSON.stringify(j)}`);
-      console.log(j);
-    } catch (e) {
-      addLog(`reupload error: ${String(e)}`);
-    }
-  }, [addLog]);
-
-
-  // --- Backend health check / initial uuid load (optional, aber hilfreich) ---
-  const fetchAvailableUuids = useCallback(async () => {
-    try {
-      const r = await fetch(`${API_BACKEND}/mcool-files`);
-      if (!r.ok) {
-        const body = await r.text().catch(() => "");
-        addLog(`mcool-files failed: ${r.status} ${r.statusText}${body ? ` | ${body}` : ""}`);
-        return [];
-      }
-      const j = await r.json();
-      const list = Array.isArray(j.all) ? j.all : [];
-      return list;
-    } catch (e) {
-      addLog(`mcool-files error: ${String(e)}`);
-      return [];
-    }
-  }, [addLog]);
-
   useEffect(() => {
-    (async () => {
-      addLog("loading available uuids…");
-      const list = await fetchAvailableUuids();
-      setAvailableUuids(list);
-      if (list.length) {
-        addLog(`found ${list.length} uuid(s)`);
-        // Wenn Default nicht existiert, nimm das erste
-        if (!list.includes(selectedUuid)) {
-          addLog(`default uuid "${selectedUuid}" not found -> switching to "${list[0]}"`);
-          setSelectedUuid(list[0]);
-          setViewerKey((k) => k + 1);
-        }
-      } else {
-        addLog("no uuids returned (backend empty/offline?)");
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    console.log("App mounted once", new Date().toISOString());
   }, []);
 
-  // --- UI handlers ---
-  const handleOpenUuidPicker = useCallback(async () => {
-    addLog("uuid picker opened -> refreshing list");
-    const list = await fetchAvailableUuids();
-    setAvailableUuids(list);
-    setShowUuidPicker(true);
-    addLog(list.length ? `uuid list refreshed (${list.length})` : "uuid list empty");
-  }, [addLog, fetchAvailableUuids]);
+  const hgApiRef = useRef(null);
+  const [hgApi, setHgApi] = useState(null);
+
+  const [hoverCell, setHoverCell] = useState(null);
+  const [clickedCell, setClickedCell] = useState(null);
+
+  const [logs, setLogs] = useState([`[${ts()}] app started`]);
+  const addLog = useCallback((line) => {
+    setLogs((p) => {
+      const next = [...p, `[${ts()}] ${line}`];
+      return next.length > 400 ? next.slice(-400) : next;
+    });
+  }, []);
+
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [busyMain, setBusyMain] = useState(false);
+  const [busyLogo, setBusyLogo] = useState(false);
+
+  const [file, setFile] = useState(null);
+  const [logoTrackFile, setLogoTrackFile] = useState(null);
+
+  const [viewerKey, setViewerKey] = useState(0);
+  const [logoTrackUsed, setLogoTrackUsed] = useState(false);
+  const [pos, setPos] = useState(null);
+
+  const {
+    availableTilesets,
+    selectedUuid,
+    setSelectedUuid,
+    showUuidPicker,
+    toggleUuidPicker,
+    tilesetFetchInFlight,
+    refreshTilesets,
+  } = useTilesets(addLog);
+
+  const viewConfig = useMemo(
+    () => (logoTrackUsed ? buildHeatmapWithTracksViewConfig(selectedUuid) : buildHeatmapViewConfig(selectedUuid)),
+    [selectedUuid, logoTrackUsed]
+  );
+
+  const backend = useBackendStatus({
+    baseUrl: import.meta.env.VITE_BACKEND_BASE_URL || "http://localhost:8000",
+    key: "current_input",
+    pollMs: 1000,
+    timeoutMs: 1500,
+    enabled: true,
+  });
+
+  useCoordsWatchdog({ hgApiRef, hgApi, addLog, intervalMs: 200, onUpdate: setPos });
+  useHoverCellWatchdog({
+    hgApiRef,
+    hgApi,
+    addLog,
+    binSize: 1,
+    includeValue: true,
+    onHover: setHoverCell,
+    debug: false,
+    debugEventDump: false,
+    debugEveryMs: 750,
+  });
+
+  const onViewerMouseDown = useCallback(
+    (e) => {
+      if (e.button === 0 && hoverCell) setClickedCell({ ...hoverCell });
+    },
+    [hoverCell]
+  );
+
+  const onHiGlassRef = useCallback(
+    (instance) => {
+      if (!instance) {
+        hgApiRef.current = null;
+        setHgApi(null);
+        addLog("HiGlass unmounted -> api cleared");
+        return;
+      }
+      const api = instance.api;
+      if (!api || typeof api.getLocation !== "function") {
+        addLog("HiGlass mounted but API not ready yet");
+        return;
+      }
+      hgApiRef.current = api;
+      setHgApi(api);
+      addLog("HiGlass API ready");
+    },
+    [addLog]
+  );
+
+  const reloadViewer = useCallback(() => {
+    addLog("viewer reload requested");
+    hgApiRef.current = null;
+    setHgApi(null);
+    setViewerKey((k) => k + 1);
+  }, [addLog]);
 
   const handleUuidSelect = useCallback(
     (e) => {
       const newUid = e.target.value;
       addLog(`switching tilesetUid -> "${newUid}"`);
       setSelectedUuid(newUid);
-      setViewerKey((k) => k + 1); // erzwingt HiGlass remount
+      setViewerKey((k) => k + 1);
+    },
+    [addLog, setSelectedUuid]
+  );
+
+  const runAction = useCallback(
+    async (label, fn) => {
+      try {
+        const res = await fn(addLog);
+        addLog(`${label} result: ${JSON.stringify(res)}`);
+        console.log(res);
+      } catch (e) {
+        addLog(`${label} error: ${String(e)}`);
+      }
     },
     [addLog]
   );
 
-  const handleReloadViewer = useCallback(() => {
-    addLog("viewer reload requested");
-    setViewerKey((k) => k + 1);
-  }, [addLog]);
+  const waitForTileset = useCallback(
+    async (uuid, { timeoutMs = 20000, intervalMs = 500 } = {}) => {
+      const has = () => availableTilesets.some((t) => t.uuid === uuid);
+      const start = Date.now();
+      while (Date.now() - start < timeoutMs) {
+        if (has()) return true;
+        await refreshTilesets();
+        if (has()) return true;
+        await new Promise((r) => setTimeout(r, intervalMs));
+      }
+      return false;
+    },
+    [availableTilesets, refreshTilesets]
+  );
+
+  const waitForHiGlassTilesetInfo = useCallback(async (uids, { timeoutMs = 60000, intervalMs = 750 } = {}) => {
+    const start = Date.now();
+
+    const isReady = async (uid) => {
+      const url = `${HIGLASS_SERVER}/api/v1/tilesets/?d=${encodeURIComponent(uid)}`;
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) return false;
+      const json = await res.json();
+      return !!(json && typeof json === "object" && json[uid]);
+    };
+
+    while (Date.now() - start < timeoutMs) {
+      let allOk = true;
+
+      for (const uid of uids) {
+        try {
+          const ok = await isReady(uid);
+          if (!ok) {
+            allOk = false;
+            break;
+          }
+        } catch {
+          allOk = false;
+          break;
+        }
+      }
+
+      if (allOk) return true;
+      await new Promise((r) => setTimeout(r, intervalMs));
+    }
+
+    return false;
+  }, []);
 
   const handleUpload = useCallback(async () => {
     if (!file) return;
-    setBusy(true);
+    setBusyMain(true);
     addLog(`upload start: ${file.name}`);
 
     try {
-      // ⚠️ Passe diesen Endpoint an deinen echten Upload an.
-      const form = new FormData();
-      form.append("file", file);
+      const j = await uploadFileWithNewUid(file, addLog);
+      addLog(`upload ok: ${JSON.stringify(j)}`);
 
-      const r = await fetch(`${API_BACKEND}/upload`, {
-        method: "POST",
-        body: form,
-      });
+      const uuid = j?.uuid || j?.tilesetUid || j?.uid;
+      if (typeof uuid === "string" && uuid) {
+        addLog(`backend returned uuid=${uuid} -> selecting (user) + waiting for list...`);
+        setSelectedUuid(uuid);
 
-      if (!r.ok) {
-        const body = await r.text().catch(() => "");
-        addLog(`upload failed: ${r.status} ${r.statusText}${body ? ` | ${body}` : ""}`);
-        return;
-      }
+        const ok = await waitForTileset(uuid);
+        addLog(ok ? "tileset visible in list -> reloading viewer" : `WARNING: tileset ${uuid} not in list before timeout; reloading anyway`);
 
-      const j = await r.json().catch(() => ({}));
-      addLog(`upload ok${j?.uuid ? ` -> uuid: ${j.uuid}` : ""}`);
-
-      // Wenn Backend nach Upload einen neuen uuid liefert
-      if (j?.uuid && typeof j.uuid === "string") {
-        setSelectedUuid(j.uuid);
         setViewerKey((k) => k + 1);
+        addLog(`selected uuid=${uuid}`);
       } else {
-        // sonst refresh uuids
-        const list = await fetchAvailableUuids();
-        setAvailableUuids(list);
-        addLog("uuid list refreshed after upload");
+        addLog("no uuid returned; refreshing tilesets");
+        await refreshTilesets();
       }
     } catch (e) {
-      addLog(`upload error: ${String(e)}`);
+      addLog(String(e));
     } finally {
-      setBusy(false);
+      setBusyMain(false);
     }
-  }, [addLog, file, fetchAvailableUuids]);
+  }, [addLog, file, refreshTilesets, setSelectedUuid, waitForTileset]);
 
-  // --- Styles ---
-  const page = {
-    minHeight: "100vh",
-    background: "radial-gradient(1200px 600px at 20% 10%, rgba(80,120,255,0.16), transparent 60%), #070a0f",
-    color: "white",
-    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif",
-  };
+  const handleLogoTrackUpload = useCallback(async () => {
+    if (!logoTrackFile) return;
+    setBusyLogo(true);
+    addLog(`logo_track upload start: ${logoTrackFile.name}`);
 
-  const header = {
-    position: "sticky",
-    top: 0,
-    zIndex: 10,
-    background: "rgba(7,10,15,0.85)",
-    backdropFilter: "blur(8px)",
-    borderBottom: "1px solid rgba(255,255,255,0.08)",
-    padding: "14px 16px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  };
+    try {
+      const j = await uploadlogoTrackFile(logoTrackFile, addLog);
+      addLog(`logo_track upload ok${j?.uuid ? ` -> uuid: ${j.uuid}` : ""}`);
 
-  const shell = {
-    display: "grid",
-    gridTemplateColumns: "360px 1fr",
-    gap: 14,
-    padding: 14,
-    alignItems: "start",
-  };
+      addLog("waiting for logo tracks to become available on HiGlass...");
+      const ok = await waitForHiGlassTilesetInfo(["a_track", "c_track", "g_track", "t_track"], {
+        timeoutMs: 60000,
+        intervalMs: 750,
+      });
+      addLog(ok ? "logo tracks ready -> enabling tracks + reloading viewer" : "WARNING: logo tracks not ready before timeout; enabling tracks + reloading anyway");
 
-  const card = {
-    borderRadius: 14,
-    background: "rgba(255,255,255,0.06)",
-    border: "1px solid rgba(255,255,255,0.10)",
-    boxShadow: "0 10px 30px rgba(0,0,0,0.25)",
-  };
+      setLogoTrackUsed(true);
+      setViewerKey((k) => k + 1);
+    } catch (e) {
+      addLog(`logo_track upload error: ${String(e)}`);
+    } finally {
+      setBusyLogo(false);
+    }
+  }, [addLog, logoTrackFile, waitForHiGlassTilesetInfo]);
 
-  const button = {
-    padding: "10px 12px",
-    borderRadius: 10,
-    border: "1px solid rgba(255,255,255,0.14)",
-    background: "rgba(255,255,255,0.08)",
-    color: "white",
-    cursor: "pointer",
-    fontWeight: 600,
-  };
+  const toggleLogoTracks = useCallback(() => {
+    setLogoTrackUsed((v) => !v);
+    setViewerKey((k) => k + 1);
+    addLog("toggled extra tracks");
+  }, [addLog]);
+
+  const backendDotColor =
+    backend?.level === "down"
+      ? "#ff3b3b"
+      : backend?.level === "busy"
+      ? "#ff9f1a"
+      : backend?.ok === false
+      ? "#ff3b3b"
+      : "#2ee66b";
+
+  const backendText =
+    backend?.text ??
+    (typeof backend?.ok === "boolean" ? (backend.ok ? "backend ok" : "backend down") : "backend status: —");
+
+  const posLeft = pos?.i ?? (typeof pos?.x1 === "number" ? Math.round(pos.x1) : null);
+  const posRight = pos?.j ?? (typeof pos?.x2 === "number" ? Math.round(pos.x2) : null);
 
   return (
     <div style={page}>
-      <div style={header}>
-        <div style={{ display: "grid", gap: 2 }}>
-          <div style={{ fontSize: 14, fontWeight: 800, letterSpacing: 0.2 }}>HiGlass Viewer</div>
-          <div style={{ fontSize: 12, color: "rgba(255,255,255,0.70)" }}>
-            Server: <span style={{ color: "white" }}>{HIGLASS_SERVER}</span> · tilesetUid:{" "}
-            <span style={{ color: "white" }}>{selectedUuid}</span>
-          </div>
-        </div>
-
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
-          <button onClick={ConverPTFile}>Click here to convert the last uploaded .pt into a .mcool file format</button>
-          <button onClick={ConvertNPYFile}>Click here to convert the last uploaded .npy into a .mcool file format</button>
-          <button onClick={ReuploadFile}>Click here to upload all converted files as new uuIDs to the higlass server</button>
-          
-          <button style={button} onClick={handleReloadViewer}>
-            Viewer neu laden
-          </button>
-          <button style={button} onClick={handleOpenUuidPicker}>
-            UUID wählen
-          </button>
-        </div>
+      <div style={topbar}>
+        <button
+          type="button"
+          onClick={() => setAdvancedOpen((v) => !v)}
+          style={advancedButton(advancedOpen)}
+          aria-pressed={advancedOpen}
+        >
+          advanced
+        </button>
       </div>
 
-      <div style={shell}>
-        {/* Sidebar */}
-        <aside style={{ ...card, padding: 14, display: "grid", gap: 14 }}>
-          <div style={{ display: "grid", gap: 8 }}>
-            <div style={{ fontWeight: 800, fontSize: 13 }}>UUID / Tileset</div>
+      {advancedOpen && (
+        <div style={advancedWrap}>
+          <div style={advancedCard}>
+            <div style={advancedRow}>
+              <div style={advancedRowLeft}>
+                <button type="button" onClick={reloadViewer} style={button} disabled={busyMain || busyLogo} title="Reload HiGlass viewer">
+                  reload viewer
+                </button>
 
-            <div style={{ display: "grid", gap: 8 }}>
-              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.75)" }}>
-                Aktuell: <span style={{ color: "white" }}>{selectedUuid}</span>
+                <button type="button" onClick={toggleUuidPicker} style={button} disabled={busyMain || busyLogo} title="Show/hide UUID picker in left sidebar">
+                  {showUuidPicker ? "hide uuid picker" : "show uuid picker"}
+                </button>
+
+                <button type="button" onClick={toggleLogoTracks} style={button} disabled={busyMain || busyLogo} title="Toggle extra tracks">
+                  {logoTrackUsed ? "tracks: on" : "tracks: off"}
+                </button>
               </div>
 
-              {showUuidPicker && (
-                <label style={{ display: "grid", gap: 6 }}>
-                  <span style={{ color: "rgba(255,255,255,0.75)", fontSize: 12 }}>Select uuid</span>
-                  <select
-                    value={selectedUuid}
-                    onChange={handleUuidSelect}
-                    style={{
-                      padding: 10,
-                      borderRadius: 10,
-                      background: "rgba(255,255,255,0.06)",
-                      border: "1px solid rgba(255,255,255,0.12)",
-                      color: "white",
-                    }}
-                  >
-                    {availableUuids.length === 0 ? (
-                      <option value={selectedUuid}>{selectedUuid}</option>
-                    ) : (
-                      availableUuids.map((u) => (
-                        <option key={u} value={u}>
-                          {u}
-                        </option>
-                      ))
-                    )}
-                  </select>
-                </label>
-              )}
+              <div style={advancedRowRight}>
+                <button type="button" onClick={() => runAction("convert", convertPt)} style={button}>
+                  convert pt
+                </button>
+                <button type="button" onClick={() => runAction("convert", convertNpy)} style={button}>
+                  convert npy
+                </button>
+                <button type="button" onClick={() => runAction("reupload", reupload)} style={button}>
+                  reupload
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    addLog("LOG TEST: addLog works ✅");
+                    console.log("LOG TEST: console.log works ✅", { t: Date.now() });
+                  }}
+                  style={button}
+                >
+                  log test
+                </button>
+              </div>
+            </div>
+
+            <div style={advancedMeta}>
+              <div style={serverText}>
+                server: <span style={{ opacity: 0.9 }}>{HIGLASS_SERVER}</span>
+              </div>
+
+              <div style={backendMeta}>
+                <span style={backendDot(backendDotColor)} title={backend?.raw || backend?.text || (backend?.ok ? "ok" : "down")} />
+                <span style={backendTextStyle}>{backendText}</span>
+              </div>
+
+              <div>
+                pos:{" "}
+                {pos && posLeft != null && posRight != null
+                  ? `${posLeft}..${posRight}${pos?.span != null ? ` (span ${pos.span})` : ""}`
+                  : "—"}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={shell}>
+        <aside style={sidebar}>
+          {showUuidPicker && (
+            <div style={{ display: "grid", gap: 8 }}>
+              <div style={sectionTitle}>UUID / Tileset</div>
+
+              <label style={labelGrid}>
+                <span style={labelHint}>Select uuid</span>
+                <select value={selectedUuid} onChange={handleUuidSelect} style={select}>
+                  {availableTilesets.length === 0 ? (
+                    <option value={selectedUuid || ""}>{selectedUuid || "—"}</option>
+                  ) : (
+                    availableTilesets.map((t) => (
+                      <option key={t.uuid} value={t.uuid}>
+                        {t.uuid}
+                        {t.name ? ` — ${t.name}` : ""}
+                        {t.datatype ? ` (${t.datatype})` : ""}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </label>
+
+              <div style={smallMuted}>
+                Loaded tilesets: {availableTilesets.length || 0} {tilesetFetchInFlight ? "· updating…" : ""}
+              </div>
+            </div>
+          )}
+
+          {showUuidPicker && <div style={divider} />}
+
+          <div style={{ display: "grid", gap: 10 }}>
+            <div style={sectionTitle}>Upload</div>
+
+            <FileUpload file={file} setFile={setFile} onUpload={handleUpload} busy={busyMain} />
+
+            <div style={divider} />
+
+            <div style={{ display: "grid", gap: 8 }}>
+              <div style={sectionTitle}>logo_track upload</div>
+              <div style={uploadHint}>.npy shape N×4 (N muss zur Größe der angezeigten Daten passen)</div>
+
+              <FileUpload
+                file={logoTrackFile}
+                setFile={setLogoTrackFile}
+                onUpload={handleLogoTrackUpload}
+                busy={busyLogo}
+                accept=".npy"
+              />
             </div>
           </div>
 
-          <div style={{ height: 1, background: "rgba(255,255,255,0.10)" }} />
+          <ConsoleBox lines={logs} />
 
-          <div style={{ display: "grid", gap: 10 }}>
-            <div style={{ fontWeight: 800, fontSize: 13 }}>Upload</div>
-            <FileUpload file={file} setFile={setFile} onUpload={handleUpload} busy={busy} />
+          <div style={statusLineOuter}>
+            {pos && posLeft != null && posRight != null ? (
+              <div style={statusEllipsis}>
+                Current position: {posLeft}..{posRight}
+                {pos?.span != null ? ` (span ${pos.span})` : ""}
+              </div>
+            ) : (
+              <div>Current position: —</div>
+            )}
+
+            {pos?.excerpt ? <div style={{ wordBreak: "break-all" }}>DNA: {pos.excerpt}</div> : null}
+
+            <div style={backendRowInStatus}>
+              <span style={backendDotSmall(backendDotColor)} title={backend?.raw || backend?.text || (backend?.ok ? "ok" : "down")} />
+              <div style={backendTextEllipsis}>{backendText}</div>
+            </div>
           </div>
 
-          <div style={{ height: 1, background: "rgba(255,255,255,0.10)" }} />
+          <div style={hoverBlock}>
+            <div>
+              Hover cell: {hoverCell ? `${hoverCell.cellX}${hoverCell.cellY == null ? "" : `,${hoverCell.cellY}`}` : "—"}
+              {" · value: "}
+              {cellValue(hoverCell?.value)}
+            </div>
 
-          <div style={{ display: "grid", gap: 10 }}>
-            <div style={{ fontWeight: 800, fontSize: 13 }}>Logs</div>
-            <ConsoleBox lines={logs} />
+            <div style={hoverLine}>
+              Last click: {clickedCell ? `${clickedCell.cellX}${clickedCell.cellY == null ? "" : `,${clickedCell.cellY}`}` : "—"}
+              {" · value: "}
+              {cellValue(clickedCell?.value)}
+            </div>
           </div>
         </aside>
 
-        {/* Main viewer */}
-        <main style={{ ...card, padding: 12 }}>
-          <div
-            style={{
-              borderRadius: 12,
-              overflow: "hidden",
-              border: "1px solid rgba(255,255,255,0.10)",
-              height: "calc(100vh - 110px)", // ✅ garantiert, dass HiGlass sichtbar ist
-              minHeight: 520,
-              background: "rgba(0,0,0,0.25)",
-            }}
-          >
-            <HiGlassComponent key={viewerKey} viewConfig={viewConfig} options={{ bounded: true }} />
-          </div>git 
+        <main style={main}>
+          <div onMouseDown={onViewerMouseDown} style={viewerFrame(advancedOpen)}>
+            <HiGlassComponent key={viewerKey} ref={onHiGlassRef} viewConfig={viewConfig} options={{ bounded: true }} />
+          </div>
         </main>
       </div>
     </div>

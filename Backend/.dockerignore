@@ -6,6 +6,7 @@ __pycache__/
 uploads/
 temp/
 McoolOutput/
+_pycache_/
 
 .git/
 .idea/

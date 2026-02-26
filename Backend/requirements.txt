@@ -10,3 +10,5 @@ pandas
 cooler
 scipy
 python-multipart
+
+pyBigWig

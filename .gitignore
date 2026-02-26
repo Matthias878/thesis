@@ -4,7 +4,18 @@ unused/
 
 Backend/uploads/current_input.pt
 Backend/uploads/current_input.npy
+Backend/uploads/logo_track.npy
+Backend/uploads/logo_track_data.npy
 
+Backend/temp/
+Backend/_pycache_/
+Backend/unused/
 
-Backend/McoolOutput/finishedFile.cool
-Backend/McoolOutput/finishedFile.mcool
+# Ignore everything inside build
+Backend/McoolOutput/*
+
+# But don't ignore this subfolder
+!Backend/McoolOutput/A/
+
+# And don't ignore its contents
+!Backend/McoolOutput/A/**
