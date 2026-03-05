@@ -1,63 +1,54 @@
 #!/usr/bin/env bash
-echo "SHELL=$0  BASH_VERSION=${BASH_VERSION:-no}"
 set -euo pipefail
+echo "SHELL=$0  BASH_VERSION=${BASH_VERSION:-no}"
 
-echo "Waiting for higlass..."
-for i in {1..360}; do
-  if curl -fsS http://higlass:80/ >/dev/null; then
-    echo "higlass is up (attempt $i)"
-    break
-  else
-    echo "attempt $i failed"
-  fi
-  sleep 3
-done
-
-DATA_DIR="/data"
-
-# ---- FIRST RUN SENTINEL (kept, but no longer needed for UUID uniqueness) ----
-INIT_SENTINEL="${DATA_DIR}/.higlass_initialized"
-if [[ ! -f "$INIT_SENTINEL" ]]; then
-  echo "First run detected."
-  touch "$INIT_SENTINEL"
-else
-  echo "Not first run."
-fi
-
-# ---- MIGRATIONS (locked with flock to avoid sqlite races) ----
-echo "Applying Django migrations (locked with flock)..."
-LOCKFILE="${DATA_DIR}/.higlass_migrate.lock"
-(
-  flock -x 200
-
-  for i in {1..30}; do
-    if python higlass-server/manage.py migrate --noinput; then
-      echo "Migrations done."
-      exit 0
-    fi
-    echo "migrate failed (attempt $i), retrying..."
-    sleep 2
-  done
-
-  echo "ERROR: migrate keeps failing"
-  exit 1
-) 200>"$LOCKFILE"
-
-# --- IMPORTANT: must match chromosome name exactly ---
-COORD_SYSTEM="testchromome"
-CHROMSIZES_TSV="${DATA_DIR}/${COORD_SYSTEM}.chrom.sizes"
+DATA_DIR=/data
+COORD_SYSTEM="testchromome"                 # must match exactly
+CHROMSIZES_TSV="$DATA_DIR/$COORD_SYSTEM.chrom.sizes"
 CHROMSIZES_UID="chromsizes__${COORD_SYSTEM}"
+
+wait_for() {
+  echo "Waiting for higlass..."
+  for i in {1..360}; do
+    if curl -fsS http://higlass:80/ >/dev/null; then
+      echo "higlass is up (attempt $i)"
+      return 0
+    fi
+    echo "attempt $i failed"
+    sleep 3
+  done
+  echo "ERROR: higlass never became reachable"
+  exit 1
+}
+
+migrate_locked() {
+  echo "Applying Django migrations (locked with flock)..."
+  local lock="$DATA_DIR/.higlass_migrate.lock"
+  (
+    flock -x 200
+    for i in {1..30}; do
+      if python higlass-server/manage.py migrate --noinput; then
+        echo "Migrations done."
+        exit 0
+      fi
+      echo "migrate failed (attempt $i), retrying..."
+      sleep 2
+    done
+    echo "ERROR: migrate keeps failing"
+    exit 1
+  ) 200>"$lock"
+}
 
 sanitize_uid() {
   local s="$1"
   s="$(printf '%s' "$s" | tr '[:upper:]' '[:lower:]')"
   s="$(printf '%s' "$s" | sed -E 's/[^a-z0-9_-]+/_/g; s/^_+|_+$//g')"
   s="${s:0:63}"
-  [[ -z "$s" ]] && s="tileset"
+  [[ -n "$s" ]] || s="tileset"
   printf '%s' "$s"
 }
 
-delete_tileset_always() {
+delete_tileset() {
   local uid="$1"
   echo "Deleting tileset uid=$uid if present..."
   python higlass-server/manage.py shell -c "
@@ -68,16 +59,47 @@ qs.delete()
 "
 }
 
-ingest_chromsizes_every_time() {
-  if [[ ! -f "$CHROMSIZES_TSV" ]]; then
-    echo "ERROR: chromsizes file missing: $CHROMSIZES_TSV"
-    return 1
+wait_for_cleanup_outputs() {
+  echo "Waiting for cleanup outputs in $DATA_DIR ..."
+
+  for i in {1..300}; do
+    # chromsizes must exist and be non-empty
+    if [[ -s "$CHROMSIZES_TSV" ]]; then
+      # at least one trigger file must exist (can be empty/non-empty, your choice)
+      shopt -s nullglob
+      local done_files=("$DATA_DIR"/*.done)
+      shopt -u nullglob
+
+      if (( ${#done_files[@]} > 0 )); then
+        echo "Cleanup outputs found (attempt $i)."
+        return 0
+      fi
+    fi
+
+    echo "attempt $i: not ready yet"
+    sleep 1
+  done
+
+  echo "ERROR: cleanup outputs never appeared"
+  exit 1
+}
+
+ingest_chromsizes_once() {
+  [[ -f "$CHROMSIZES_TSV" ]] || { echo "ERROR: chromsizes missing: $CHROMSIZES_TSV"; return 1; }
+
+  echo "Checking chromsizes tileset uid=$CHROMSIZES_UID ..."
+  local count
+  count="$(python higlass-server/manage.py shell -c "
+from tilesets.models import Tileset
+print(Tileset.objects.filter(uuid='${CHROMSIZES_UID}').count())
+")"
+
+  if [[ "$count" != "0" ]]; then
+    echo "Chromsizes tileset already present (count=$count). Skipping ingest."
+    return 0
   fi
 
-  # Idempotent: always delete then ingest
-  delete_tileset_always "$CHROMSIZES_UID"
-
-  echo "Ingesting chromsizes: file=$CHROMSIZES_TSV uid=$CHROMSIZES_UID coordSystem=$COORD_SYSTEM"
+  echo "Chromsizes tileset missing; ingesting: $CHROMSIZES_TSV (uid=$CHROMSIZES_UID coordSystem=$COORD_SYSTEM)"
   python higlass-server/manage.py ingest_tileset \
     --filename "$CHROMSIZES_TSV" \
     --filetype chromsizes-tsv \
@@ -86,75 +108,74 @@ ingest_chromsizes_every_time() {
     --uid "$CHROMSIZES_UID" \
     --name "Chromosomes (${COORD_SYSTEM})"
 }
+ingest_file() {
+  local path="$1"
+  local stem core uid name filetype datatype
 
-echo "Watching ${DATA_DIR} for ANY *.done (rename first, then ingest) ..."
+  stem="$(basename "$path")"
 
-while true; do
-  shopt -s nullglob
-
-  done_files=("${DATA_DIR}"/*.done)
-  for done_path in "${done_files[@]}"; do
-    base="$(basename "$done_path")"
-    [[ "$base" == .* ]] && continue
-
-    # Rename FIRST: remove the .done suffix
-    data_path="${done_path%.done}"
-    stem="$(basename "$data_path")"
-
-    if [[ -e "$data_path" ]]; then
-      echo "ERROR: cannot rename $done_path -> $data_path (target exists). Quarantining trigger."
-      mv -f "$done_path" "${done_path}.conflict"
-      continue
-    fi
-
-    mv -f "$done_path" "$data_path"
-    echo "Renamed trigger/data: $done_path -> $data_path"
-
-    # ALWAYS ingest chromsizes before each file
-    ingest_chromsizes_every_time
-
-    # Determine ingest params from the renamed filename
-    uid=""
-    name=""
-    filetype=""
-    datatype=""
-
-    if [[ "$stem" == *.mcool ]]; then
+  case "$stem" in
+    *.multires.mv5)
+      core="${stem%.multires.mv5}"
+      filetype="multivec"; datatype="multivec"
+      ;;
+    *.mcool)
       core="${stem%.mcool}"
-      uid="$(sanitize_uid "$core")"
-      name="$core"
-      filetype="cooler"
-      datatype="matrix"
-    elif [[ "$stem" == *.bigWig || "$stem" == *.bigwig ]]; then
-      core="${stem%.bigWig}"
-      core="${core%.bigwig}"
-      uid="$(sanitize_uid "$core")"
-      name="$core"
-      filetype="bigwig"
-      datatype="vector"
-    else
-      echo "Skipping unsupported file type: $data_path"
-      mv -f "$data_path" "${data_path}.unsupported"
-      continue
-    fi
+      filetype="cooler"; datatype="matrix"
+      ;;
+    *.bigWig|*.bigwig)
+      core="${stem%.bigWig}"; core="${core%.bigwig}"
+      filetype="bigwig"; datatype="vector"
+      ;;
+    *)
+      echo "Skipping unsupported file type: $path"
+      mv -f "$path" "${path}.unsupported"
+      return 0
+      ;;
+  esac
 
-    echo "Computed uid=$uid name=$name filetype=$filetype datatype=$datatype coordSystem=$COORD_SYSTEM"
+  uid="$(sanitize_uid "$core")"
+  name="$core"
 
-    # Idempotent: always delete then ingest
-    delete_tileset_always "$uid"
+  echo "Computed uid=$uid name=$name filetype=$filetype datatype=$datatype coordSystem=$COORD_SYSTEM"
+  delete_tileset "$uid"
+  echo "Ingesting: file=$path uid=$uid name=$name"
+  python higlass-server/manage.py ingest_tileset \
+    --filename "$path" \
+    --filetype "$filetype" \
+    --datatype "$datatype" \
+    --coordSystem "$COORD_SYSTEM" \
+    --uid "$uid" \
+    --name "$name"
+  echo "Ingest done for: $path"
+}
 
-    echo "Ingesting: file=$data_path uid=$uid name=$name"
-    python higlass-server/manage.py ingest_tileset \
-      --filename "$data_path" \
-      --filetype "$filetype" \
-      --datatype "$datatype" \
-      --coordSystem "$COORD_SYSTEM" \
-      --uid "$uid" \
-      --name "$name"
+watch_loop() {
+  echo "Watching $DATA_DIR for *.done (rename first, then ingest) ..."
+  while true; do
+    shopt -s nullglob
+    for done_path in "$DATA_DIR"/*.done; do
+      [[ "$(basename "$done_path")" == .* ]] && continue
 
-    echo "Ingest done for: $data_path"
+      local data_path="${done_path%.done}"
+      if [[ -e "$data_path" ]]; then
+        echo "ERROR: cannot rename $done_path -> $data_path (target exists). Quarantining trigger."
+        mv -f "$done_path" "${done_path}.conflict"
+        continue
+      fi
+
+      mv -f "$done_path" "$data_path"
+      echo "Renamed trigger/data: $done_path -> $data_path"
+
+      ingest_file "$data_path"
+    done
+    shopt -u nullglob
+    sleep 1
   done
+}
 
-  shopt -u nullglob
-  sleep 2
-done
+wait_for_cleanup_outputs
+wait_for
+migrate_locked   # or remove migrate as discussed
+ingest_chromsizes_once
+watch_loop

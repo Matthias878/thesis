@@ -12,3 +12,5 @@ scipy
 python-multipart
 
 pyBigWig
+
+clodius

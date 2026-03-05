@@ -116,8 +116,7 @@ export const divider = {
   background: "rgba(255,255,255,0.10)",
 };
 
-// --- layout shell (dein FIX) -------------------------------------------
-// Wichtig: flex-row + minWidth:0 verhindert Overlap / "main drückt sidebar weg"
+// Wichtig: flex-row + minWidth:0 verhindert Overlap / main drückt sidebar weg
 export const shell = {
   flex: "1 1 auto",
   minHeight: 0,

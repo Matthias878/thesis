@@ -12,7 +12,7 @@ from pathlib import Path
 import time
 
 OUT_DIR = "McoolOutput"
-PREFIX = "npy_file_"  # <-- new prefix per your request
+PREFIX = "npy_file_" 
 
 
 def next_npyfile_base(out_dir=OUT_DIR, prefix=PREFIX):
@@ -61,7 +61,7 @@ if __name__ == "__main__":
     label_offset = 0  # currently unused, kept for compatibility
 
     # ---------------------------------------------------------------------
-    # NEW OUTPUT NAMING BEHAVIOR:
+    #  OUTPUT NAMING BEHAVIOR:
     # - If a number x is passed as argv[1] OR argv[2], output is:
     #     McoolOutput/npy_file_x.mcool (and .cool)
     # - If no number is passed, output is from internal counting:

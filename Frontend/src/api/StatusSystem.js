@@ -9,7 +9,7 @@ export function useBackendStatus({
   key = "current_input",
   pollMs = 1000,
   timeoutMs = 1500,
-  enabled = true, // 👈 NEW
+  enabled = true, 
 } = {}) {
   const [backend, setBackend] = useState({
     level: "down",
@@ -18,7 +18,7 @@ export function useBackendStatus({
   });
 
   useEffect(() => {
-    if (!enabled) return; // 👈 stop polling completely
+    if (!enabled) return; 
 
     let alive = true;
     let timer = null;
@@ -77,7 +77,7 @@ export function useBackendStatus({
         });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
 
-        const j = await r.json(); // { status: "..." }
+        const j = await r.json(); 
 
         if (!alive) return;
         setBackend(classify(j?.status));
@@ -96,7 +96,7 @@ export function useBackendStatus({
       alive = false;
       if (timer) clearInterval(timer);
     };
-  }, [baseUrl, key, pollMs, timeoutMs, enabled]); // 👈 include enabled
+  }, [baseUrl, key, pollMs, timeoutMs, enabled]); 
 
   return backend;
 }

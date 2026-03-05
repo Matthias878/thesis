@@ -102,7 +102,6 @@ export default function HeaderBar({
           Click here to upload all converted files as new uuIDs to the higlass server
         </button>
 
-        {/* ✅ fixed: no undefined vars, correct style */}
         <button
           type="button"
           onClick={onToggleBackendPolling}

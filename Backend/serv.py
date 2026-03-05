@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import shutil
 import os
 import subprocess
+import re
 import numpy as np
 from pathlib import Path
 import torch
@@ -163,14 +164,14 @@ async def new_file(file: UploadFile = File(...)):
         mat = obj if isinstance(obj, torch.Tensor) else next(
             v for v in obj.values() if isinstance(v, torch.Tensor)
         )
-        write_chromsizes_tsv(chrom_len_bp=mat.shape[0])
+        #write_chromsizes_tsv(chrom_len_bp=mat.shape[0])
 
         print(">>> Running PTtoMCOOLconverter.py")
         run_cmd(["python", "PTtoMCOOLconverter.py", input_path], "pt->mcool")
 
     elif ext == ".npy":
         obj = np.load(input_path, allow_pickle=True)
-        write_chromsizes_tsv(chrom_len_bp=obj.shape[0])
+        #write_chromsizes_tsv(chrom_len_bp=obj.shape[0])
 
         print(">>> Running DimensionReducer.py")
         run_cmd(["python", "DimensionReducer.py", input_path], "npy:dimension_reducer")
@@ -199,8 +200,6 @@ async def new_file(file: UploadFile = File(...)):
         print(f">>> Renaming {mcool_tmp} → {mcool_done}")
         mcool_tmp.rename(mcool_done)
 
-    time.sleep(3)
-
     # Finalize
     print(">>> SUCCESS: Conversion complete.")
 
@@ -213,6 +212,39 @@ async def new_file(file: UploadFile = File(...)):
         "message": "File converted and finalized (.mcool.done).",
         "uuid": os.path.join("npy_file_" + str(idx))
     }
+
+def safe_name(name: str) -> str:
+    name = Path(name).name  # drops any directories
+    name = re.sub(r"[^A-Za-z0-9._-]+", "_", name)
+    return name or "upload.npy"
+
+@app.post("/upload_nxk_npy")
+async def upload_nxk_npy(file: UploadFile = File(...)):
+    base = safe_name(file.filename)
+
+    save_path = os.path.join(UPLOAD_DIR, f"nxk__{base}")
+    with open(save_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    idx = get_next_index()
+
+    run_cmd(["python", "Create_mv5_fromnpy.py", str(save_path), str(idx)], "npy->mv5")
+
+    output_path = os.path.join(REUPLOAD_DIR, f"npy_file_{idx}.multires.mv5")
+
+    print(f">>> Checking expected temp file: {output_path}")
+    if not os.path.exists(output_path):
+        set_status("error: conversion finished but no .mv5 file found")
+        raise HTTPException(
+            status_code=500,
+            detail="Conversion finished but no .mv5 file was found in   McoolOutput",
+        )
+    
+    mv5_done = output_path + ".done"   # yields "...mv5.done"
+    print(f">>> Renaming {output_path} → {mv5_done}")
+    os.replace(output_path, mv5_done)  # atomic rename on same filesystem
+
+    return {"status": "success", "uuid": f"npy_file_{idx}"}
 
 
 #get status
@@ -247,7 +279,7 @@ async def upload_logo_track(file: UploadFile = File(...)):
             if obj.ndim != 2 or obj.shape[1] != 4:
                 statuses["current_input"] = f"error: invalid shape {obj.shape}, expected Nx4"
                 raise HTTPException(status_code=400, detail=f"Invalid shape {obj.shape}. Expected Nx4 format")
-            write_chromsizes_tsv(chrom_len_bp=obj.shape[0])
+            #write_chromsizes_tsv(chrom_len_bp=obj.shape[0])
         except HTTPException:
             raise
         except Exception:
