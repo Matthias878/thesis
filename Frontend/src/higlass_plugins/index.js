@@ -1,6 +1,6 @@
-// src/index.js
 import register from "higlass-register";
 import SeqLogoTrack from "./SeqLogoTrack";
+import SequenceTextTrack from "./SequenceTextTrack";
 
 register({
   name: "seqlogo",
@@ -8,4 +8,10 @@ register({
   config: SeqLogoTrack.config,
 });
 
-export default SeqLogoTrack;
+register({
+  name: "sequence-text",
+  track: SequenceTextTrack,
+  config: SequenceTextTrack.config,
+});
+
+export { SeqLogoTrack, SequenceTextTrack };

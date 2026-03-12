@@ -1,5 +1,3 @@
-// src/components/Sidebar.jsx
-
 import React from "react";
 import ConsoleBox from "./ConsoleBox";
 import FileUpload from "./FileUpload";
@@ -44,6 +42,7 @@ export default function Sidebar({
   lineModeEnabled,
   onToggleMatrix,
   onToggleLineMode,
+  canActivateLines,
 
   logs,
   pos,
@@ -53,6 +52,9 @@ export default function Sidebar({
   backendText,
   hoverCell,
   clickedCell,
+
+  sequenzInput,
+  setSequenzInput,
 }) {
   const cellValue = (v) => (v instanceof Error ? `Error: ${v.message}` : v == null ? String(v) : String(v));
 
@@ -110,18 +112,30 @@ export default function Sidebar({
 
         <FileUpload file={npyMatrixFile} setFile={setNpyMatrixFile} onUpload={handleNpyMatrixUpload} accept=".npy" />
 
-        {/* Buttons are ALWAYS visible now */}
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <button type="button" onClick={onToggleMatrix} style={button} title={matrixUid ? `matrixUid=${matrixUid}` : ""}>
-            {matrixEnabled ? "matrix track hidden" : "matrix track shown"}
+          <button
+            type="button"
+            onClick={onToggleMatrix}
+            style={button}
+            title={matrixUid ? `matrixUid=${matrixUid}` : ""}
+          >
+            {matrixEnabled ? "matrix tracks: on" : "matrix tracks: off"}
           </button>
 
-          {/*<button type="button" onClick={onToggleLineMode} style={button}>
-            {lineModeEnabled ? "Line mode enabled" : "Line mode disabled"}
-          </button>*/}
+          <button
+            type="button"
+            onClick={onToggleLineMode}
+            disabled={!canActivateLines}
+            style={{
+              ...button,
+              opacity: canActivateLines ? 1 : 0.4,
+              cursor: canActivateLines ? "pointer" : "not-allowed",
+            }}
+          >
+            {lineModeEnabled ? "line mode: on" : "line mode: off"}
+          </button>
         </div>
 
-        {/* Optional: show matrix uid so you can see if upload worked */}
         <div style={smallMuted}>matrixUid: {matrixUid || "—"}</div>
       </div>
 
@@ -155,6 +169,28 @@ export default function Sidebar({
           {" · value: "}
           {cellValue(clickedCell?.value)}
         </div>
+      </div>
+
+      <div style={divider} />
+
+      <div style={{ display: "grid", gap: 6 }}>
+        <div style={sectionTitle}>sequenz</div>
+        <input
+          type="text"
+          value={sequenzInput}
+          onChange={(e) => setSequenzInput(e.target.value)}
+          placeholder="ACGT..."
+          style={{
+            width: "100%",
+            boxSizing: "border-box",
+            padding: "8px 10px",
+            borderRadius: 6,
+            border: "1px solid #555",
+            background: "#111",
+            color: "#eee",
+            outline: "none",
+          }}
+        />
       </div>
     </aside>
   );

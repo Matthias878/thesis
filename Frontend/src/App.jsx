@@ -1,4 +1,3 @@
-// src/App.jsx
 // =============================================================================
 //   IMPORTS
 // =============================================================================
@@ -54,6 +53,9 @@ export default function App() {
   const [logoTrackFile, setLogoTrackFile] = useState(null);
   const [npyMatrixFile, setNpyMatrixFile] = useState(null);
 
+  // sidebar text copied into useHeatmapViewConfig
+  const [sequenzInput, setSequenzInput] = useState("ACGTACGTAACCGGTT");
+
   // extra track toggles / uids
   const [logoTrackUsed, setLogoTrackUsed] = useState(false);
 
@@ -64,19 +66,6 @@ export default function App() {
   const bumpViewerKey = useCallback(() => setViewerKey((k) => k + 1), []);
 
   // SIMPLE UI STATE (no matrixMode state machine)
-  const [matrixEnabled, setMatrixEnabled] = useState(false);
-  const [lineModeEnabled, setLineModeEnabled] = useState(false);
-
-  const matrixEnabledRef = useRef(false);
-  const lineModeEnabledRef = useRef(false);
-
-  useEffect(() => {
-    matrixEnabledRef.current = matrixEnabled;
-  }, [matrixEnabled]);
-
-  useEffect(() => {
-    lineModeEnabledRef.current = lineModeEnabled;
-  }, [lineModeEnabled]);
 
   /* =======================================================================
      HOOKS
@@ -114,11 +103,20 @@ const {
   config: viewConfig,
   setHeatmapUid,
   setMatrixUidAndRowcount,
+  setLogoUid,
   toggleLineMode,
   toggleMatrixMode,
   toggleLogoMode,
-} = useHeatmapViewConfig({ addLog });
-
+  toggleSequenzMode,
+  matrixActivated,
+  lineMode,
+  canActivateLines,
+  sequenzActivated,
+  logoActivated,
+} = useHeatmapViewConfig({
+  addLog,
+  sequenz: sequenzInput,
+});
   // poll tileset_info for matrix rowcount
   const { rowCount: matrixRowCount } = useTilesetInfo(matrixUid, {
     enabled: Boolean(matrixUid),
@@ -148,12 +146,12 @@ const {
     bumpViewerKey();
   }, [addLog, bumpViewerKey, clearApi]);
 
-  // old upload API expectation: "waitForHiGlassTilesetInfo" helper
+  // TODO maybe move into different file | waitForHiGlassTilesetInfo helper
   const waitForHiGlassTilesetInfo = useCallback(
     async (uids, { timeoutMs = 60000, intervalMs = 1000 } = {}) => {
       const want = Array.isArray(uids) ? uids : [uids];
       const base = baseUrl(HIGLASS_SERVER);
-      const url = `${base}/tilesets/`;
+      const url = `${base}/tilesets/?limit=1000`;
       const start = Date.now();
 
       addLog(`waitForHiGlassTilesetInfo start: want=[${want.join(", ")}] url=${url}`);
@@ -208,83 +206,57 @@ const {
   );
 
   // uploads (heatmap/logo/matrix)
-  const { handleUpload, handleLogoTrackUpload, handleNpyMatrixUpload } = useUploads({
-    addLog,
-    refreshTilesets,
-    setSelectedUuid,
-    waitForHiGlassTilesetInfo,
-    selectedUuid,
+const { handleUpload, handleLogoTrackUpload, handleNpyMatrixUpload } = useUploads({
+  addLog,
+  refreshTilesets,
+  setSelectedUuid,
+  waitForHiGlassTilesetInfo,
+  selectedUuid,
+  setLogoTrackUsed,
+  toggleLogoMode,
+  setLogoUid,
+  setMatrixUid,
 
-    setLogoTrackUsed,
+  setMatrixUsed: (next) => {
+    if (Boolean(next) !== matrixActivated) {
+      toggleMatrixMode();
+    }
+  },
 
-    toggleLogoMode,
-    setMatrixUid,
+  setMatrixSplitUsed: (next) => {
+    const want = Boolean(next);
+    if (want && !canActivateLines) {
+      addLog("setMatrixSplitUsed(true) blocked: canActivateLines=false");
+      return;
+    }
+    if (want !== lineMode) {
+      toggleLineMode();
+    }
+  },
 
-    // keep compatibility if uploads call setMatrixMode("off"|"single"|"split")
-    // (no App-level matrixMode state; this just best-effort toggles things)
-    setMatrixMode: (mode) => {
-      addLog(`useUploads requested setMatrixMode("${mode}")`);
+  applySingleMatrixNow: (heatmapUid, mvUid) => {
+    if (!heatmapUid || !mvUid) return;
 
-      if (mode === "off") {
-        if (lineModeEnabledRef.current) {
-          toggleLineMode();
-          setLineModeEnabled(false);
-        }
-        if (matrixEnabledRef.current) {
-          toggleMatrixMode();
-          setMatrixEnabled(false);
-        }
-        return;
-      }
+    setSelectedUuid(heatmapUid);
+    setMatrixUid(mvUid);
 
-      if (mode === "single") {
-        if (lineModeEnabledRef.current) {
-          toggleLineMode();
-          setLineModeEnabled(false);
-        }
-        if (!matrixEnabledRef.current) {
-          toggleMatrixMode();
-          setMatrixEnabled(true);
-        }
-        return;
-      }
-
-      if (mode === "split") {
-        if (!matrixEnabledRef.current) {
-          toggleMatrixMode();
-          setMatrixEnabled(true);
-        }
-        if (!lineModeEnabledRef.current) {
-          toggleLineMode();
-          setLineModeEnabled(true);
-        }
-      }
-    },
-
-    // responsiveness when uploads want to immediately show single mode
-    applySingleMatrixNow: (heatmapUid, mvUid) => {
-      if (!heatmapUid || !mvUid) return;
-      setSelectedUuid(heatmapUid);
-      setMatrixUid(mvUid);
-
-      // best-effort: ensure matrix is ON (do not touch line mode)
-      if (!matrixEnabledRef.current) {
-        toggleMatrixMode();
-        setMatrixEnabled(true);
-        addLog("applySingleMatrixNow: toggled matrix ON via toggleMatrixMode()");
-      }
-    },
-  });
-
+    if (!matrixActivated) {
+      toggleMatrixMode();
+    }
+    if (lineMode) {
+      toggleLineMode();
+    }
+  },
+});
   /* =======================================================================
      ACTIONS / HANDLERS
      ======================================================================= */
 
-const toggleLogoTracks = useCallback(() => {
-  toggleLogoMode();                // drives viewConfig
-  setLogoTrackUsed((v) => !v);     // keeps UI state if you want it
-  addLog("toggled logo tracks");
-}, [toggleLogoMode, addLog]);
+  const toggleLogoTracks = useCallback(() => {
+    toggleLogoMode();
+    setLogoTrackUsed((v) => !v);
+    addLog("toggled logo tracks");
+  }, [toggleLogoMode, addLog]);
 
   // dropdown handler: switch base heatmap tileset uid
   const handleUuidSelect = useCallback(
@@ -311,18 +283,29 @@ const toggleLogoTracks = useCallback(() => {
   );
 
   //buttons are always visible and directly call the hook toggles
-  const onToggleMatrix = useCallback(() => {
-    toggleMatrixMode();
-    setMatrixEnabled((v) => !v);
-    addLog("matrix button pressed -> toggleMatrixMode()");
-  }, [toggleMatrixMode, addLog]);
+const onToggleMatrix = useCallback(() => {
+  toggleMatrixMode();
+  addLog("matrix button pressed -> toggleMatrixMode()");
+}, [toggleMatrixMode, addLog]);
 
 const onToggleLineMode = useCallback(() => {
+  if (!canActivateLines) {
+    addLog("line-mode button blocked: canActivateLines=false");
+    return;
+  }
+
   toggleLineMode();
-  setLineModeEnabled((v) => !v);
   addLog("line-mode button pressed -> toggleLineMode()");
   reloadViewer();
-}, [toggleLineMode, addLog, reloadViewer]);
+}, [toggleLineMode, canActivateLines, addLog, reloadViewer]);
+  const onToggleSequenz = useCallback(() => {
+    toggleSequenzMode();
+    addLog("sequence button pressed -> toggleSequenzMode()");
+    reloadViewer();
+  }, [toggleSequenzMode, addLog, reloadViewer]);
+
+
+
   // Reload once when selectedUuid transitions from "missing" -> "present" in availableTilesets.
   const selectedPresenceRef = useRef({ uid: null, wasPresent: false });
 
@@ -367,9 +350,13 @@ const onToggleLineMode = useCallback(() => {
           toggleUuidPicker={toggleUuidPicker}
           toggleLogoTracks={toggleLogoTracks}
           onToggleMatrix={onToggleMatrix}
-          //onToggleLineMode={onToggleLineMode}
-          matrixEnabled={matrixEnabled}
-          lineModeEnabled={lineModeEnabled}
+          onToggleLineMode={onToggleLineMode}
+          canActivateLines={canActivateLines}
+          onToggleSequenz={onToggleSequenz}
+          matrixEnabled={matrixActivated}
+          lineModeEnabled={lineMode}
+          sequenzActivated={sequenzActivated}
+          logoActivated={logoActivated}
           runAction={runAction}
           convertPt={convertPt}
           convertNpy={convertNpy}
@@ -405,10 +392,11 @@ const onToggleLineMode = useCallback(() => {
           setNpyMatrixFile={setNpyMatrixFile}
           handleNpyMatrixUpload={() => handleNpyMatrixUpload({ npyMatrixFile, setBusy: setBusyMain })}
           matrixUid={matrixUid}
-          matrixEnabled={matrixEnabled}
-          lineModeEnabled={lineModeEnabled}
+          matrixEnabled={matrixActivated}
+          lineModeEnabled={lineMode}
           onToggleMatrix={onToggleMatrix}
-          //onToggleLineMode={onToggleLineMode}
+          onToggleLineMode={onToggleLineMode}
+          canActivateLines={canActivateLines}
           logs={logs}
           pos={pos}
           posLeft={posLeft}
@@ -417,6 +405,8 @@ const onToggleLineMode = useCallback(() => {
           backendText={backendText}
           hoverCell={hoverCell}
           clickedCell={clickedCell}
+          sequenzInput={sequenzInput}
+          setSequenzInput={setSequenzInput}
         />
 
         <Viewer

@@ -1,5 +1,3 @@
-// src/components/AdvancedPanel.jsx
-
 import React from "react";
 import {
   advancedWrap,
@@ -22,11 +20,15 @@ export default function AdvancedPanel({
   toggleUuidPicker,
   toggleLogoTracks,
 
-
   onToggleMatrix,
   onToggleLineMode,
+  canActivateLines,
+  onToggleSequenz,
+
   matrixEnabled,
   lineModeEnabled,
+  sequenzActivated,
+  logoActivated,
 
   runAction,
   convertPt,
@@ -58,16 +60,23 @@ export default function AdvancedPanel({
             </button>
 
             <button onClick={toggleLogoTracks} style={button} disabled={busyMain || busyLogo}>
-              {logoTrackUsed ? "logo tracks: on" : "logo tracks: off"}
+              {logoActivated ? "logo tracks: on" : "logo tracks: off"}
             </button>
 
-            {/* Buttons are ALWAYS visible now */}
             <button onClick={onToggleMatrix} style={button} disabled={busyMain || busyLogo}>
               {matrixEnabled ? "matrix tracks: on" : "matrix tracks: off"}
             </button>
 
-            <button onClick={onToggleLineMode} style={button} disabled={busyMain || busyLogo}>
-              {lineModeEnabled ? "Line mode enabled" : "Line mode disabled"}
+            <button
+              onClick={onToggleLineMode}
+              style={button}
+              disabled={busyMain || busyLogo || !canActivateLines}
+            >
+              {lineModeEnabled ? "line mode: on" : "line mode: off"}
+            </button>
+
+            <button onClick={onToggleSequenz} style={button} disabled={busyMain || busyLogo}>
+              {sequenzActivated ? "sequence track: on" : "sequence track: off"}
             </button>
           </div>
 

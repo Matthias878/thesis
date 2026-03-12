@@ -51,6 +51,12 @@ export async function uploadNxknpyFile(file, addLog) {
   return await r.json().catch(() => ({}));
 }
 
+export async function call_Matrix_bigwig(addLog) {
+
+  fetch(`${API_BACKEND}/upload_nxk_npy_bigwig`, { method: "GET" });
+  return;
+}
+
 export async function uploadlogoTrackFile(file, addLog) {
   const form = new FormData();
   form.append("file", file);

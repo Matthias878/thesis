@@ -2,14 +2,12 @@ notes/
 
 unused/
 
-Backend/uploads/current_input.pt
-Backend/uploads/current_input.npy
-Backend/uploads/logo_track.npy
-Backend/uploads/logo_track_data.npy
-
 Backend/temp/
 Backend/_pycache_/
 Backend/unused/
+
+# Ignore everything inside
+Backend/uploads/*
 
 # Ignore everything inside build
 Backend/McoolOutput/*

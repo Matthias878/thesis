@@ -1,5 +1,3 @@
-#TODO create from any Nxk npy file and create a .mv5 file from it
-
 # --- Convert NxK .npy matrix to multires .mv5 (HiGlass multivec) ---
 
 import os
@@ -105,35 +103,34 @@ if __name__ == "__main__":
     print(f">>> python: {sys.executable}")
     print("=" * 80)
 
-    # ---- defaults ----
+
     default_npy_path = "uploads/current_input.npy"
 
-    # Base resolution in bp per bin. This becomes --starting-resolution for clodius.
     binsize = 1
 
-    # If no chromsizes file is provided, everything is placed on one chromosome.
+    
     default_single_chrom = "testchromome"
 
-    # Optional files
     chromsizes_path = None         # TSV: chrom  size
     row_infos_path = None          # TXT: K lines (row labels)
     label_offset = 0               # unused, kept for compatibility
+    out_name = None
 
     # ---------------------------------------------------------------------
-    # Arg behavior (similar style to your script):
+    # Arg behavior
     #
     # Numeric index x:
     #   if a number x is passed as argv[1] OR argv[2], output is:
-    #       OUT_DIR/npy_file_x.multires.mv5  (and base .h5)
+    #       OUT_DIR/npy_file_x.multires.mv5
     #
     # Input path:
     #   first non-flag, non-number argument is treated as input npy path
     #
-    # Flags (optional, order-independent):
+    # Flags (optional, order-independent): - irrelevant
     #   --binsize <int>
     #   --chromsizes <path>
     #   --row-infos <path>
-    #   --chrom <name>          (used only when no chromsizes is given)
+    #   --chrom <name>          
     # ---------------------------------------------------------------------
 
     args = sys.argv[1:]
@@ -175,6 +172,10 @@ if __name__ == "__main__":
     if v is not None:
         default_single_chrom = v
 
+    v = pop_flag_value("--out")
+    if v is not None:
+        out_name = v
+
     # remaining non-number, non-flag arg = npy path (first one)
     npy_path = default_npy_path
     for a in args:
@@ -186,7 +187,10 @@ if __name__ == "__main__":
         break
 
     # decide output base name
-    if x is not None:
+    if out_name is not None:
+        base_path = os.path.join(OUT_DIR, out_name)
+        mode = "custom-name"
+    elif x is not None:
         base_path = os.path.join(OUT_DIR, f"{PREFIX}{x}")
         mode = "indexed"
     else:
@@ -233,9 +237,8 @@ if __name__ == "__main__":
     N, K = A.shape
     print(f">>> Matrix is 2D: N={N} K={K}")
 
-    # --- chrom partitioning ---
-    # If chromsizes is provided, split rows across chromosomes in file order.
-    # Otherwise create a single chromosome.
+
+    # leads to create a single chromosome.
     tmp_files = []
 
     if chromsizes_path is not None:
@@ -319,8 +322,7 @@ if __name__ == "__main__":
 
     print(f">>> .mv5 written in {time.time() - t2:.3f}s: {mv5_path} ({_stat_line(mv5_path)})")
 
-    # Optional: delete temporary helper files we created
-    # (comment this out if you want to keep them)
+    #delete temporary helper files
     for p in tmp_files:
         try:
             os.remove(p)

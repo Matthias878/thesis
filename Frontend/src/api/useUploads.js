@@ -1,9 +1,7 @@
-// src/api/useUploads.js
-
 import { useCallback } from "react";
 import { extractUuid } from "../utils/appUtils";
 
-import { uploadFileWithNewUid, uploadlogoTrackFile, uploadNxknpyFile } from "./higlassApi";
+import { uploadFileWithNewUid, uploadlogoTrackFile, uploadNxknpyFile, call_Matrix_bigwig } from "./higlassApi";
 
 /**
  * Upload flows: API call -> wait for tilesets -> update state -> log
@@ -12,23 +10,20 @@ export function useUploads({
   addLog,
   refreshTilesets,
   setSelectedUuid,
-
   waitForHiGlassTilesetInfo,
-
   selectedUuid,
-
   // logo
   setLogoTrackUsed,
   toggleLogoMode,
-
+  setLogoUid,
   // matrix
   setMatrixUid,
   setMatrixUsed,
   setMatrixSplitUsed,
-
   // view-config actions
   applySingleMatrixNow,
 }) {
+
   // Heatmap upload: wait for tileset-info BEFORE selecting
   const uploadHeatmapAndSelect = useCallback(
     async ({ file, label, uploader, setBusy }) => {
@@ -82,24 +77,28 @@ export function useUploads({
         addLog(`logo_track upload ok${j?.uuid ? ` -> uuid: ${j.uuid}` : ""}`);
 
         addLog("waiting for logo tracks on HiGlass...");
-        const ok = await waitForHiGlassTilesetInfo(["a_track", "c_track", "g_track", "t_track"], {
+        const uid = extractUuid(j);
+
+          if (uid) {
+            setLogoUid(uid);
+          }
+        const ok = await waitForHiGlassTilesetInfo([uid], {
           timeoutMs: 60000,
           intervalMs: 250,
         });
 
         addLog(ok ? "logo tracks ready -> enabling" : "WARNING: logo tracks timeout; enabling anyway");
+        setLogoUid(uid);
         setLogoTrackUsed(true);
--       toggleLogoMode()
-+       toggleLogoMode?.();
       } catch (e) {
         addLog(`logo_track upload error: ${String(e)}`);
       } finally {
         setBusy(false);
       }
     },
--   [addLog, setLogoTrackUsed, waitForHiGlassTilesetInfo],
-+   [addLog, setLogoTrackUsed, toggleLogoMode, waitForHiGlassTilesetInfo],
+    [addLog, setLogoTrackUsed, toggleLogoMode, setLogoUid, waitForHiGlassTilesetInfo]
   );
+
   // NxK upload
   const handleNpyMatrixUpload = useCallback(
     async ({ npyMatrixFile, setBusy }) => {
@@ -110,6 +109,7 @@ export function useUploads({
 
       try {
         const j = await uploadNxknpyFile(npyMatrixFile, addLog);
+        call_Matrix_bigwig(addLog);
         addLog(`npy NxK upload ok: ${JSON.stringify(j)}`);
 
         const uid = extractUuid(j);
@@ -128,7 +128,7 @@ export function useUploads({
         // store uid, enable toggle
         setMatrixUid(uid);
         setMatrixUsed(true);
-        setMatrixSplitUsed(false); // single mode wins after upload
+        setMatrixSplitUsed(false);
 
         const heatmapUid = selectedUuid || "";
         if (!heatmapUid) {

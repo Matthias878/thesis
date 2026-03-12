@@ -11,7 +11,7 @@ Frontend: http://localhost:8080  //Browser darkmode is not helpful
 
 Backend: http://localhost:8000
 
-HiGlass: http://localhost:8989   (http://localhost:8989/api/v1/tilesets/  to see what uuIds are uploaded)
+HiGlass: http://localhost:8989   (http://localhost:8989/api/v1/tilesets/?limit=100  to see what uuIds are uploaded)
 
 reload frontend: 
 docker compose up -d --build frontend

@@ -1,6 +1,3 @@
-#FOR bigwig Logos call them the same as .mcool but with .bigWig extension and A_Track_ prefix, e.g. npyfile_1.mcool -> A_Track_npyfile_1.bigWig(.done)
-# NOTE: BigWig handling is ONLY in /upload_logo_track in this file.
-
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import shutil
@@ -218,8 +215,68 @@ def safe_name(name: str) -> str:
     name = re.sub(r"[^A-Za-z0-9._-]+", "_", name)
     return name or "upload.npy"
 
+
+name = ""
+ouname = ""
+
 @app.post("/upload_nxk_npy")
 async def upload_nxk_npy(file: UploadFile = File(...)):
+    global name
+    global ouname 
+    base = safe_name(file.filename)
+
+    save_path = os.path.join(UPLOAD_DIR, f"nxk__{base}")
+    name = str(save_path)
+    with open(save_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    idx = get_next_index()
+
+    run_cmd(["python", "Create_mv5_fromnpy.py", str(save_path), str(idx)], "npy->mv5")
+
+    output_path = os.path.join(REUPLOAD_DIR, f"npy_file_{idx}.multires.mv5")
+    ouname = f"npy_file_{idx}"
+
+    print(f">>> Checking expected temp file: {output_path}")
+    if not os.path.exists(output_path):
+        set_status("error: conversion finished but no .mv5 file found")
+        raise HTTPException(
+            status_code=500,
+            detail="Conversion finished but no .mv5 file was found in   McoolOutput",
+        )
+    
+    mv5_done = output_path + ".done"   # yields "...mv5.done"
+    print(f">>> Renaming {output_path} → {mv5_done}")
+    os.replace(output_path, mv5_done)  # atomic rename on same filesystem
+
+    return {"status": "success", "uuid": f"npy_file_{idx}"}
+
+#load N*k matrix as bigwig files - should only be called after upload_nxk_npy by frontend
+@app.get("/upload_nxk_npy_bigwig")
+async def upload_nxk_npy_bigwig():
+
+    #for each row in the matrix create a new .bigwig file (max 12) from current
+    subprocess.run(["python", "create_bigwigs_from_matrix.py", "--in", name, "--out", ouname])
+    
+    for file in Path(REUPLOAD_DIR).glob("*.bigWig"):
+        file.rename(file.with_suffix(".bigWig.done"))
+    
+    return {
+        "status": "success",
+        "message": "bigwig files generated and finalized (.bigWig.done)."
+    }
+
+
+#get status
+@app.get("/status/{key}")
+async def get_status(key: str):
+    return {"status": statuses.get(key, "idle")}
+
+
+
+#upload logo track -multivec version 0-1 values sum to 1
+@app.post("/upload_logo_track")
+async def upload_logo_track(file: UploadFile = File(...)):
     base = safe_name(file.filename)
 
     save_path = os.path.join(UPLOAD_DIR, f"nxk__{base}")
@@ -228,7 +285,7 @@ async def upload_nxk_npy(file: UploadFile = File(...)):
 
     idx = get_next_index()
 
-    run_cmd(["python", "Create_mv5_fromnpy.py", str(save_path), str(idx)], "npy->mv5")
+    run_cmd(    ["python", "Create_mv5_fromnpy.py", str(save_path), "--out", f"npy_file_{idx}"],    "npy->mv5")
 
     output_path = os.path.join(REUPLOAD_DIR, f"npy_file_{idx}.multires.mv5")
 
@@ -247,13 +304,52 @@ async def upload_nxk_npy(file: UploadFile = File(...)):
     return {"status": "success", "uuid": f"npy_file_{idx}"}
 
 
-#get status
-@app.get("/status/{key}")
-async def get_status(key: str):
-    return {"status": statuses.get(key, "idle")}
+#helper functions
 
-#upload logo track
-@app.post("/upload_logo_track")
+
+def _safe_delete(path: str) -> None:
+    if not path:
+        return
+    if os.path.exists(path):
+        print(f"Deleting existing file: {path}")
+        try:
+            os.remove(path)
+        except OSError as e:
+            raise RuntimeError(f"Failed to delete existing file '{path}': {e}") from e
+        
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+
+#------------------Below should no longer be necessary
+
+
+def write_chromsizes_tsv(chrom_len_bp: int) -> None:
+    """
+    Write/overwrite a chromsizes TSV file with exactly:
+        <chrom>\t<chrom_len_bp>\n
+    """
+    out_path = os.path.join("McoolOutput", "testchromome.chrom.sizes")
+    chrom = "testchromome"
+    out_dir = os.path.dirname(out_path)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+
+    _safe_delete(out_path)
+
+    line = f"{chrom}\t{int(chrom_len_bp)}\n"
+    with open(out_path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(line)
+
+    print(f"Wrote chromsizes TSV: {out_path}")
+    print(f"  {chrom}\t{int(chrom_len_bp)}")
+
+    
+#upload logo track - temp 4 bigwig version
+@app.post("/upload_logo_track-TempUnused")
 async def upload_logo_track(file: UploadFile = File(...)):
     statuses["current_input"] = "received new logo track file"
     filename = file.filename
@@ -299,47 +395,6 @@ async def upload_logo_track(file: UploadFile = File(...)):
         "status": "success",
         "message": "Logo track files generated and finalized (.bigWig.done)."
     }
-
-#helper functions
-def write_chromsizes_tsv(chrom_len_bp: int) -> None:
-    """
-    Write/overwrite a chromsizes TSV file with exactly:
-        <chrom>\t<chrom_len_bp>\n
-    """
-    out_path = os.path.join("McoolOutput", "testchromome.chrom.sizes")
-    chrom = "testchromome"
-    out_dir = os.path.dirname(out_path)
-    if out_dir:
-        os.makedirs(out_dir, exist_ok=True)
-
-    _safe_delete(out_path)
-
-    line = f"{chrom}\t{int(chrom_len_bp)}\n"
-    with open(out_path, "w", encoding="utf-8", newline="\n") as f:
-        f.write(line)
-
-    print(f"Wrote chromsizes TSV: {out_path}")
-    print(f"  {chrom}\t{int(chrom_len_bp)}")
-
-
-def _safe_delete(path: str) -> None:
-    if not path:
-        return
-    if os.path.exists(path):
-        print(f"Deleting existing file: {path}")
-        try:
-            os.remove(path)
-        except OSError as e:
-            raise RuntimeError(f"Failed to delete existing file '{path}': {e}") from e
-        
-
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
-
-
-
-#------------------Below should no longer be necessary
 
 
 @app.get("/mcool-files")
@@ -419,6 +474,7 @@ async def convert_file_pt():
 
     statuses["current_input"] = "converting"
     subprocess.run(["python", "PTtoMCOOLconverter.py", file_path])
+    
     statuses["current_input"] = "converted"
 
     return {"status": "success", "message": "converted pt to mcool file"}
@@ -434,7 +490,11 @@ async def convert_file_npy():
 
     statuses["current_input"] = "converting"
     subprocess.run(["python", "DimensionReducer.py", file_path])
-    subprocess.run(["python", "NPYtoMCOOLconverter.py", file_path])
+    subprocess.run(
+    ["python", "NPYtoMCOOLconverter.py", file_path],
+    check=True,
+    capture_output=False
+)
     statuses["current_input"] = "converted"
 
     return {"status": "success", "message": "converted npy to mcool file"}
