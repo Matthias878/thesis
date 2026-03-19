@@ -1,5 +1,3 @@
-# --- Convert NxK .npy matrix to multires .mv5 (HiGlass multivec) ---
-
 import os
 import re
 import sys

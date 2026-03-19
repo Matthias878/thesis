@@ -133,7 +133,7 @@ const SequenceTextTrack = function SequenceTextTrack(HGC, ...args) {
         const rowH = clippedY1 - clippedY0;
 
         if (rowH <= 0) continue;
-        if (rowH < this.fontSize * 0.6) continue;
+        if (rowH < 1) continue;
 
         const base = seq[seqIndex] || "N";
         const text = this._acquireText();

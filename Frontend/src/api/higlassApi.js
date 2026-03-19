@@ -1,5 +1,5 @@
-import { API_BACKEND } from "../config";
-import { HIGLASS_SERVER } from "../config";
+import { API_BACKEND, HIGLASS_SERVER } from "../config";
+import { baseUrl } from "../utils/appUtils";
 
 async function readErrorBody(r) {
   return await r.text().catch(() => "");
@@ -52,7 +52,6 @@ export async function uploadNxknpyFile(file, addLog) {
 }
 
 export async function call_Matrix_bigwig(addLog) {
-
   fetch(`${API_BACKEND}/upload_nxk_npy_bigwig`, { method: "GET" });
   return;
 }
@@ -68,12 +67,9 @@ export async function uploadlogoTrackFile(file, addLog) {
 
 export async function fetchAllTilesets(addLog, { pageSize = 1000 } = {}) {
   const rawBase = String(HIGLASS_SERVER).replace(/\/+$/, "");
-
-  // If base already ends with /api/v1, don't append it again.
   const baseHasApiV1 = /\/api\/v1$/i.test(rawBase);
   const baseRoot = baseHasApiV1 ? rawBase.replace(/\/api\/v1$/i, "") : rawBase;
 
-  // Build the first page URL consistently:
   const apiPrefix = "/api/v1";
   const firstUrl = `${baseRoot}${apiPrefix}/tilesets/?limit=${pageSize}&offset=0`;
 
@@ -81,9 +77,6 @@ export async function fetchAllTilesets(addLog, { pageSize = 1000 } = {}) {
 
   const all = [];
   const seen = new Set();
-
-  // IMPORTANT: don't log every GET here (polling would spam)
-  // addLog?.(`fetchAllTilesets: GET ${url}`);
 
   while (url) {
     const res = await fetch(url, { headers: { Accept: "application/json" } });
@@ -93,8 +86,6 @@ export async function fetchAllTilesets(addLog, { pageSize = 1000 } = {}) {
     }
 
     const data = await res.json();
-
-    // HiGlass typically responds with { count, next, previous, results: [...] }
     const results = Array.isArray(data?.results) ? data.results : Array.isArray(data) ? data : [];
 
     for (const t of results) {
@@ -110,13 +101,76 @@ export async function fetchAllTilesets(addLog, { pageSize = 1000 } = {}) {
     }
 
     url = data?.next || null;
-
-    // Some servers return relative next URLs
     if (url && url.startsWith("/")) url = `${baseRoot}${url}`;
   }
 
-  // Don't log "loaded N" by default; leave it to the caller to decide.
-  // addLog?.(`fetchAllTilesets: loaded ${all.length} tilesets`);
-
   return all;
+}
+
+export async function waitForHiGlassTilesetInfo(
+  uids,
+  {
+    addLog,
+    timeoutMs = 60000,
+    intervalMs = 1000,
+    onReady,
+  } = {},
+) {
+  const want = Array.isArray(uids) ? uids : [uids].filter(Boolean);
+  if (want.length === 0) {
+    addLog?.("waitForHiGlassTilesetInfo skipped: no uids requested");
+    return true;
+  }
+
+  const base = baseUrl(HIGLASS_SERVER);
+  const url = `${base}/tilesets/?limit=1000`;
+  const start = Date.now();
+
+  addLog?.(`waitForHiGlassTilesetInfo start: want=[${want.join(", ")}] url=${url}`);
+
+  let attempt = 0;
+
+  while (Date.now() - start < timeoutMs) {
+    attempt += 1;
+
+    try {
+      const res = await fetch(url, {
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+        credentials: "omit",
+      });
+
+      const text = await res.text();
+      const snippet = text.slice(0, 200).replace(/\s+/g, " ");
+
+      addLog?.(`poll ${attempt}: status=${res.status} ok=${res.ok} body="${snippet}"`);
+
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        addLog?.(`poll ${attempt}: JSON parse failed (${String(e)})`);
+        await new Promise((r) => setTimeout(r, intervalMs));
+        continue;
+      }
+
+      const have = new Set((data?.results ?? []).map((t) => t?.uuid ?? t?.uid).filter(Boolean));
+      const missing = want.filter((u) => !have.has(u));
+
+      addLog?.(`poll ${attempt}: results=${data?.results?.length ?? 0} missing=[${missing.join(", ")}]`);
+
+      if (missing.length === 0) {
+        addLog?.("tilesets ready");
+        if (typeof onReady === "function") onReady();
+        return true;
+      }
+    } catch (err) {
+      addLog?.(`poll ${attempt}: fetch error: ${String(err)}`);
+    }
+
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+
+  addLog?.(`waitForHiGlassTilesetInfo TIMEOUT: want=[${want.join(", ")}]`);
+  return false;
 }

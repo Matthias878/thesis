@@ -1,15 +1,4 @@
-# create_bigwigs_from_matrix.py
-# called with create_bigwigs_from_matrix.py --in filename
-#
-# Loads /uploads/filename.npy and writes up to 12 bigWig files to /McoolOutput/.
-# Each output file is named: filename_row_<row_number>.bigWig
-# If --out <name> is provided, it will instead use: <name>_row_<row_number>.bigWig
-#
-#
-# IMPORTANT:
-# - The bigWig chromosome header is hardcoded to CHROM_LEN_BP
-# - This must match the HiGlass chromsizes entry for DEFAULT_CHROM exactly
-
+#TODO row column mix up ??
 import argparse
 import os
 import sys

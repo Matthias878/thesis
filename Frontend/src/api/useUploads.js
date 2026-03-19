@@ -1,6 +1,5 @@
 import { useCallback } from "react";
 import { extractUuid } from "../utils/appUtils";
-
 import { uploadFileWithNewUid, uploadlogoTrackFile, uploadNxknpyFile, call_Matrix_bigwig } from "./higlassApi";
 
 /**
@@ -12,19 +11,12 @@ export function useUploads({
   setSelectedUuid,
   waitForHiGlassTilesetInfo,
   selectedUuid,
-  // logo
-  setLogoTrackUsed,
-  toggleLogoMode,
   setLogoUid,
-  // matrix
   setMatrixUid,
-  setMatrixUsed,
-  setMatrixSplitUsed,
-  // view-config actions
+  ensureMatrixMode,
+  ensureLineMode,
   applySingleMatrixNow,
 }) {
-
-  // Heatmap upload: wait for tileset-info BEFORE selecting
   const uploadHeatmapAndSelect = useCallback(
     async ({ file, label, uploader, setBusy }) => {
       if (!file) return;
@@ -44,7 +36,11 @@ export function useUploads({
         }
 
         addLog(`waiting for heatmap tileset ${uuid}…`);
-        const ok = await waitForHiGlassTilesetInfo([uuid], { timeoutMs: 60000, intervalMs: 250 });
+        const ok = await waitForHiGlassTilesetInfo([uuid], {
+          timeoutMs: 60000,
+          intervalMs: 250,
+        });
+
         if (!ok) {
           addLog(`TIMEOUT: heatmap uuid not ready (${uuid}); not selecting`);
           return;
@@ -62,13 +58,20 @@ export function useUploads({
   );
 
   const handleUpload = useCallback(
-    ({ file, setBusy }) => uploadHeatmapAndSelect({ file, label: "upload", uploader: uploadFileWithNewUid, setBusy }),
+    ({ file, setBusy }) =>
+      uploadHeatmapAndSelect({
+        file,
+        label: "upload",
+        uploader: uploadFileWithNewUid,
+        setBusy,
+      }),
     [uploadHeatmapAndSelect],
   );
 
   const handleLogoTrackUpload = useCallback(
     async ({ logoTrackFile, setBusy }) => {
       if (!logoTrackFile) return;
+
       setBusy(true);
       addLog(`logo_track upload start: ${logoTrackFile.name}`);
 
@@ -76,30 +79,30 @@ export function useUploads({
         const j = await uploadlogoTrackFile(logoTrackFile, addLog);
         addLog(`logo_track upload ok${j?.uuid ? ` -> uuid: ${j.uuid}` : ""}`);
 
-        addLog("waiting for logo tracks on HiGlass...");
         const uid = extractUuid(j);
+        if (!uid) {
+          addLog("logo_track upload: backend returned no uuid");
+          return;
+        }
 
-          if (uid) {
-            setLogoUid(uid);
-          }
+        setLogoUid(uid);
+
+        addLog("waiting for logo tracks on HiGlass...");
         const ok = await waitForHiGlassTilesetInfo([uid], {
           timeoutMs: 60000,
           intervalMs: 250,
         });
 
-        addLog(ok ? "logo tracks ready -> enabling" : "WARNING: logo tracks timeout; enabling anyway");
-        setLogoUid(uid);
-        setLogoTrackUsed(true);
+        addLog(ok ? "logo tracks ready" : "WARNING: logo tracks timeout; keeping uploaded uid anyway");
       } catch (e) {
         addLog(`logo_track upload error: ${String(e)}`);
       } finally {
         setBusy(false);
       }
     },
-    [addLog, setLogoTrackUsed, toggleLogoMode, setLogoUid, waitForHiGlassTilesetInfo]
+    [addLog, setLogoUid, waitForHiGlassTilesetInfo],
   );
 
-  // NxK upload
   const handleNpyMatrixUpload = useCallback(
     async ({ npyMatrixFile, setBusy }) => {
       if (!npyMatrixFile) return;
@@ -119,16 +122,19 @@ export function useUploads({
         }
 
         addLog(`waiting for matrix multivec tileset ${uid}…`);
-        const ok = await waitForHiGlassTilesetInfo([uid], { timeoutMs: 60000, intervalMs: 250 });
+        const ok = await waitForHiGlassTilesetInfo([uid], {
+          timeoutMs: 60000,
+          intervalMs: 250,
+        });
+
         if (!ok) {
           addLog(`TIMEOUT: matrix uid not ready (${uid})`);
           return;
         }
 
-        // store uid, enable toggle
         setMatrixUid(uid);
-        setMatrixUsed(true);
-        setMatrixSplitUsed(false);
+        ensureMatrixMode(true);
+        ensureLineMode(false);
 
         const heatmapUid = selectedUuid || "";
         if (!heatmapUid) {
@@ -147,9 +153,9 @@ export function useUploads({
       addLog,
       applySingleMatrixNow,
       selectedUuid,
-      setMatrixSplitUsed,
       setMatrixUid,
-      setMatrixUsed,
+      ensureMatrixMode,
+      ensureLineMode,
       waitForHiGlassTilesetInfo,
     ],
   );

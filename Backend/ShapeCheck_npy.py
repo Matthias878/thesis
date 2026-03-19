@@ -1,18 +1,4 @@
-#.npy saves arrays //
 import numpy as np
-import os
-#import tkinter as tk
-#from tkinter import filedialog
-
-#gives a file dialog to choose a .npy file
-#def choose_file(initialdir=None, filetypes=(("NumPy files", "*.npy"), ("All files", "*.*")), multiple=False, title="Select file"):
-#    root = tk.Tk()
-#    root.withdraw()
-#    if initialdir is None:
-#        initialdir = os.path.expanduser("~")
-#    if multiple:
-#        return list(filedialog.askopenfilenames(parent=root, initialdir=initialdir, title=title, filetypes=filetypes))
-#    return filedialog.askopenfilename(parent=root, initialdir=initialdir, title=title, filetypes=filetypes)
 
 if __name__ == "__main__":
     #path = choose_file()

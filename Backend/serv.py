@@ -6,8 +6,6 @@ import subprocess
 import re
 import numpy as np
 from pathlib import Path
-import torch
-import time
 
 app = FastAPI()
 
@@ -155,18 +153,18 @@ async def new_file(file: UploadFile = File(...)):
     print(">>> Starting conversion pipeline")
     set_status("starting conversion pipeline")
 
-    if ext == ".pt":
-        # get N once for chromsizes
-        obj = torch.load(input_path, map_location="cpu")
-        mat = obj if isinstance(obj, torch.Tensor) else next(
-            v for v in obj.values() if isinstance(v, torch.Tensor)
-        )
-        #write_chromsizes_tsv(chrom_len_bp=mat.shape[0])
+    #if ext == ".pt":
+    #    # get N once for chromsizes
+    #    obj = torch.load(input_path, map_location="cpu")
+    #    mat = obj if isinstance(obj, torch.Tensor) else next(
+    #        v for v in obj.values() if isinstance(v, torch.Tensor)
+    #    )
+    #    #write_chromsizes_tsv(chrom_len_bp=mat.shape[0])
+#
+    #    print(">>> Running PTtoMCOOLconverter.py")
+    #    run_cmd(["python", "PTtoMCOOLconverter.py", input_path], "pt->mcool")
 
-        print(">>> Running PTtoMCOOLconverter.py")
-        run_cmd(["python", "PTtoMCOOLconverter.py", input_path], "pt->mcool")
-
-    elif ext == ".npy":
+    if ext == ".npy":
         obj = np.load(input_path, allow_pickle=True)
         #write_chromsizes_tsv(chrom_len_bp=obj.shape[0])
 
@@ -176,6 +174,13 @@ async def new_file(file: UploadFile = File(...)):
         print(">>> Running NPYtoMCOOLconverter.py")
         idx = get_next_index()
         run_cmd(["python", "NPYtoMCOOLconverter.py", str(idx)], "npy->mcool")
+    else:
+        print(f"!!! ERROR: Unhandled file extension at conversion step: {ext}")
+        set_status(f"error: unhandled file extension at conversion step ({ext})")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unhandled file extension at conversion step: {ext}",
+        )
 
     print(">>> Conversion pipeline finished.")
 

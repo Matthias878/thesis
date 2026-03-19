@@ -1,5 +1,3 @@
-// src/styles/appStyles.js
-
 export const page = {
   minHeight: "100svh",
   background:
@@ -179,6 +177,16 @@ export const select = {
   background: "rgba(255,255,255,0.06)",
   border: "1px solid rgba(255,255,255,0.12)",
   color: "white",
+  width: "100%",
+  boxSizing: "border-box",
+  appearance: "auto",
+  WebkitAppearance: "auto",
+  MozAppearance: "auto",
+};
+
+export const selectOption = {
+  color: "black",
+  backgroundColor: "white",
 };
 
 export const labelGrid = {
