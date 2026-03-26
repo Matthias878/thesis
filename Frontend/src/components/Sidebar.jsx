@@ -1,389 +1,281 @@
-import React, { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useUploads } from "../api/useUploads";
-import {
-  sidebar,
-  divider,
-  sectionTitle,
-  labelGrid,
-  labelHint,
-  select,
-  selectOption,
-  smallMuted,
-  uploadHint,
-  backendRowInStatus,
-  backendDotSmall,
-  backendTextEllipsis,
-  hoverBlock,
-  hoverLine,
-  button,
+import { sidebar, divider, sectionTitle, select, selectOption, backendRowInStatus, backendDotSmall, backendTextEllipsis, hoverBlock, hoverLine, button, sectionGrid8, sectionGrid10, wrapRow, consoleBox, consoleWrap, sidebarScrollHiddenCss, uploadButton,
 } from "../styles/appStyles";
 
-function FileUploadInline({
-  file,
-  setFile,
-  onUpload,
-  busy,
-  accept,
-  label = "Datei auswählen",
-  buttonText = "Hochladen",
-}) {
+const asArray = (v) => (Array.isArray(v) ? v : []);
+const text = (v) =>
+  v instanceof Error ? `Error: ${v.message}` : v == null ? "—" : String(v);
+const pair = (a, b) => `${a ?? "—"},${b ?? "—"}`;
+const currentLabel = (label, value, prefix = false) =>
+  value ? `${prefix ? "Current " : "current "}${label}: ${value}` : "empty";
+
+const formatRelativePosition = (d) => (d ? pair(d.cellX, d.cellY) : "—");
+const formatAbsolutePosition = (d) =>
+  !d
+    ? "—"
+    : d.absoluteStart != null || d.absoluteEnd != null
+      ? pair(d.absoluteStart, d.absoluteEnd)
+      : d.absoluteCoordinateBase != null
+        ? pair(d.absoluteCoordinateBase + (d.cellX ?? 0), d.absoluteCoordinateBase + (d.cellY ?? 0))
+        : "—";
+
+const formatDisplayLine = (d) =>
+  d
+    ? `value=${text(d.value)} · relative=${formatRelativePosition(d)} · absolute=${formatAbsolutePosition(d)}`
+    : "—";
+
+function FilePicker({ file, setFile, busy, accept }) {
+  const inputRef = useRef(null);
+
   return (
-    <div style={{ display: "grid", gap: 10 }}>
-      <label style={{ display: "grid", gap: 6 }}>
-        <span style={{ color: "rgba(255,255,255,0.75)", fontSize: 12 }}>{label}</span>
-        <input
-          type="file"
-          accept={accept}
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-          style={{
-            padding: 10,
-            borderRadius: 10,
-            background: "rgba(255,255,255,0.06)",
-            border: "1px solid rgba(255,255,255,0.12)",
-            color: "white",
-          }}
-        />
-      </label>
-
-      <button
-        type="button"
-        onClick={onUpload}
-        disabled={!file || busy}
-        style={{
-          padding: "10px 12px",
-          borderRadius: 10,
-          border: "1px solid rgba(255,255,255,0.14)",
-          background: !file || busy ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.10)",
-          color: "white",
-          cursor: !file || busy ? "not-allowed" : "pointer",
-          fontWeight: 600,
-        }}
-        title={!file ? "Bitte erst eine Datei auswählen" : ""}
-      >
-        {busy ? "Lade hoch..." : buttonText}
+    <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: 8, alignItems: "center", width: "100%" }}>
+      <input
+        ref={inputRef}
+        type="file"
+        accept={accept}
+        disabled={busy}
+        style={{ display: "none" }}
+        onChange={({ target }) => setFile(target.files?.[0] ?? null)}
+      />
+      <button type="button" disabled={busy} onClick={() => inputRef.current?.click()} style={uploadButton(busy)}>
+        Browse
       </button>
+      <div
+        style={{
+          minWidth: 0,
+          padding: "8px 10px",
+          border: "1px solid rgba(255,255,255,0.12)",
+          borderRadius: 8,
+          color: file ? "white" : "rgba(255,255,255,0.65)",
+          background: "rgba(255,255,255,0.04)",
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+        }}
+        title={file?.name || "No file selected"}
+      >
+        {file?.name || "No file selected"}
+      </div>
+    </div>
+  );
+}
 
-      {file && (
-        <div style={{ color: "rgba(255,255,255,0.70)", fontSize: 12 }}>
-          Ausgewählt: <span style={{ color: "white" }}>{file.name}</span>
-        </div>
-      )}
+function FileUpload({ file, setFile, onUpload, busy, accept, buttonText = "Upload", items, value = "", onSelect, emptyText = "empty", selectTitle = "", getValue = (x) => x, getLabel = (x) => String(x ?? ""),
+}) {
+  const hasDropdown = items && onSelect;
+
+  return (
+    <div style={sectionGrid10}>
+      <FilePicker file={file} setFile={setFile} busy={busy} accept={accept} />
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: hasDropdown ? "1fr 1fr" : "1fr",
+          gap: 8,
+          width: "100%",
+        }}
+      >
+        <button
+          type="button"
+          onClick={onUpload}
+          disabled={!file || busy}
+          style={uploadButton(!file || busy)}
+          title={!file ? "Please select a file first" : ""}
+        >
+          {busy ? "Uploading..." : buttonText}
+        </button>
+
+        {hasDropdown && (
+          <select
+            value={value}
+            onChange={(e) => onSelect?.(e.target.value)}
+            style={{ ...select, width: "100%" }}
+            title={selectTitle}
+          >
+            <option value="" style={selectOption}>
+              {emptyText}
+            </option>
+            {items.map((item, index) => {
+              const optionValue = String(getValue(item) ?? "");
+              const label = getLabel(item) || "(empty)";
+              return (
+                <option key={optionValue || `item-${index}`} value={optionValue} style={selectOption}>
+                  {label}
+                </option>
+              );
+            })}
+          </select>
+        )}
+      </div>
     </div>
   );
 }
 
 function ConsoleBoxInline({ lines }) {
   const ref = useRef(null);
-
   useEffect(() => {
-    if (ref.current) {
-      ref.current.scrollTop = ref.current.scrollHeight;
-    }
+    if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
   }, [lines]);
 
   return (
-    <pre
-      ref={ref}
-      style={{
-        margin: 0,
-        padding: 12,
-        borderRadius: 10,
-        background: "#0b0f14",
-        color: "#9ef7a6",
-        fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-        fontSize: 12,
-        lineHeight: 1.35,
-        maxHeight: 220,
-        overflow: "auto",
-        border: "1px solid rgba(255,255,255,0.08)",
-        whiteSpace: "pre-wrap",
-      }}
-    >
+    <pre ref={ref} style={consoleBox}>
       {lines.join("\n")}
     </pre>
   );
 }
 
-export default function Sidebar({
-  showUuidPicker,
-  availableTilesets,
-  selectedUuid,
-  handleUuidSelect,
-  tilesetFetchInFlight,
-  addLog,
-  refreshTilesets,
-  waitForHiGlassTilesetInfo,
-  setSelectedUuid,
-  setLogoUid,
-  setMatrixUid,
-  currentSelectedUuid,
-  matrixUid,
-  matrixEnabled,
-  lineModeEnabled,
-  canActivateLines,
-  toggleMatrixMode,
-  toggleLineMode,
-  logs,
-  posLeft,
-  posRight,
-  backendDotColor,
-  backendText,
-  hoverDisplay,
-  clickedDisplay,
-  chromosomeName,
-  fastaFile,
-  setFastaFile,
-  fastaBusy,
-  handleFastaUpload,
-  fastaContent,
-}) {
-  const [busyMain, setBusyMain] = useState(false);
-  const [busyLogo, setBusyLogo] = useState(false);
-  const [busyMatrix, setBusyMatrix] = useState(false);
+export default function Sidebar(props) {
+  const { addLog, setMainHeatmapUid, setLogoTrackUid, setMatrixUid, setChromosomeObject, currentMainHeatmapUid, currentLogoTrackUid, matrixUid, currentChromosomeObject, matrixEnabled, lineModeEnabled, canActivateLines, toggleMatrixMode, toggleLineMode, logs, backendDotColor, backendText, hoverDisplay, clickedDisplay, fastaFile, setFastaFile, fastaBusy, handleFastaUpload, heatmapUids, matrixUids, logoUids, fastaData,
+  } = props;
 
+  const [busy, setBusy] = useState(false);
+  const [zipFile, setZipFile] = useState(null);
   const [file, setFile] = useState(null);
   const [logoTrackFile, setLogoTrackFile] = useState(null);
   const [npyMatrixFile, setNpyMatrixFile] = useState(null);
 
-  const { handleUpload, handleLogoTrackUpload, handleNpyMatrixUpload } = useUploads({
+  const { handleUpload, handleLogoTrackUpload, handleNpyMatrixUpload, handleZIPUpload } = useUploads({
     addLog,
-    refreshTilesets,
-    setSelectedUuid,
-    waitForHiGlassTilesetInfo,
-    selectedUuid: currentSelectedUuid,
-    setLogoUid,
+    setMainHeatmapUid,
+    setLogoTrackUid,
     setMatrixUid,
-    ensureMatrixMode: (enabled) => {
-      if (Boolean(enabled) !== matrixEnabled) {
-        toggleMatrixMode();
-      }
-    },
-    ensureLineMode: (enabled) => {
-      const want = Boolean(enabled);
-      if (want && !canActivateLines) {
-        addLog?.("ensureLineMode(true) blocked: canActivateLines=false");
-        return;
-      }
-      if (want !== lineModeEnabled) {
-        toggleLineMode();
-      }
-    },
-    applySingleMatrixNow: (heatmapUid, mvUid) => {
-      if (!heatmapUid || !mvUid) return;
-
-      setSelectedUuid(heatmapUid);
-      setMatrixUid(mvUid);
-
-      if (!matrixEnabled) toggleMatrixMode();
-      if (lineModeEnabled) toggleLineMode();
-    },
+    setChromosomeObject,
   });
 
-  const cellValue = (v) => {
-    if (v instanceof Error) return `Error: ${v.message}`;
-    if (v == null) return "—";
-    return String(v);
+  const allBusy = busy || fastaBusy;
+
+  const selectUid = async (value, setter, kind) => {
+    if (!value) return;
+    const ok = await setter?.(value);
+    addLog?.(`${kind} dropdown select: uid="${value}" ok=${Boolean(ok)}`);
   };
 
-  const formatRelativePosition = (display) => {
-    if (!display) return "—";
-    const x = display.cellX ?? "—";
-    const y = display.cellY ?? "—";
-    return `${x},${y}`;
-  };
-
-  const formatAbsolutePosition = (display) => {
-    if (!display) return "—";
-
-    if (display.absoluteStart != null || display.absoluteEnd != null) {
-      const start = display.absoluteStart ?? "—";
-      const end = display.absoluteEnd ?? "—";
-      return `${start},${end}`;
-    }
-
-    if (display.absoluteCoordinateBase != null) {
-      const x = display.cellX ?? 0;
-      const y = display.cellY ?? 0;
-      return `${display.absoluteCoordinateBase + x},${display.absoluteCoordinateBase + y}`;
-    }
-
-    return "—";
-  };
-
-  const formatDisplayLine = (display) => {
-    if (!display) {
-      return "absolute position: — | relative position: — | value: —";
-    }
-
-    return `absolute position: ${formatAbsolutePosition(display)} | relative position: ${formatRelativePosition(display)} | value: ${cellValue(display.value)}`;
-  };
-
-  const onHeatmapUpload = async () => {
-    await handleUpload({ file, setBusy: setBusyMain });
-  };
-
-  const onLogoUpload = async () => {
-    await handleLogoTrackUpload({
-      logoTrackFile,
-      setBusy: setBusyLogo,
-    });
-  };
-
-  const onMatrixUpload = async () => {
-    await handleNpyMatrixUpload({
-      npyMatrixFile,
-      setBusy: setBusyMatrix,
-    });
-  };
+  const sections = useMemo(
+    () => [
+      {
+        title: "zip file upload",
+        grid: sectionGrid10,
+        file: zipFile,
+        setFile: setZipFile,
+        onUpload: () => handleZIPUpload({ zipFile, setBusy }),
+        accept: ".zip",
+        buttonText: "Upload ZIP",
+      },
+      {
+        title: "main heatmap upload Nx3xNx4.npy file",
+        grid: sectionGrid10,
+        file,
+        setFile,
+        onUpload: () => handleUpload({ file, setBusy }),
+        accept: ".npy",
+        items: asArray(heatmapUids),
+        value: String(currentMainHeatmapUid ?? ""),
+        onSelect: (value) => selectUid(value, setMainHeatmapUid, "heatmap"),
+        emptyText: currentLabel("heatmap", currentMainHeatmapUid),
+        selectTitle: currentLabel("heatmap UID", currentMainHeatmapUid, true),
+      },
+      {
+        title: "logo track upload Nx4.npy file",
+        grid: sectionGrid8,
+        file: logoTrackFile,
+        setFile: setLogoTrackFile,
+        onUpload: () => handleLogoTrackUpload({ logoTrackFile, setBusy }),
+        accept: ".npy",
+        items: asArray(logoUids),
+        value: String(currentLogoTrackUid ?? ""),
+        onSelect: (value) => selectUid(value, setLogoTrackUid, "logo"),
+        emptyText: currentLabel("logo track", currentLogoTrackUid),
+        selectTitle: currentLabel("logo track", currentLogoTrackUid, true),
+      },
+      {
+        title: "matrix upload NxK.npy file",
+        grid: sectionGrid8,
+        file: npyMatrixFile,
+        setFile: setNpyMatrixFile,
+        onUpload: () => handleNpyMatrixUpload({ npyMatrixFile, setBusy }),
+        accept: ".npy",
+        items: asArray(matrixUids),
+        value: String(matrixUid ?? ""),
+        onSelect: (value) => selectUid(value, setMatrixUid, "matrix"),
+        emptyText: currentLabel("matrix", matrixUid),
+        selectTitle: currentLabel("matrix UID", matrixUid, true),
+        extra: (
+          <div style={wrapRow}>
+            <button type="button" onClick={toggleMatrixMode} style={button} title={matrixUid ? `matrixUid=${matrixUid}` : ""}>
+              {matrixEnabled ? "matrix tracks: on" : "matrix tracks: off"}
+            </button>
+            <button
+              type="button"
+              onClick={toggleLineMode}
+              disabled={!canActivateLines}
+              style={{ ...button, opacity: canActivateLines ? 1 : 0.4, cursor: canActivateLines ? "pointer" : "not-allowed" }}
+            >
+              {lineModeEnabled ? "line mode: on" : "line mode: off"}
+            </button>
+          </div>
+        ),
+      },
+      {
+        title: 'sequence upload {">name:startpos-endpos\\nSEQ.fasta file"}',
+        grid: sectionGrid8,
+        file: fastaFile,
+        setFile: setFastaFile,
+        onUpload: handleFastaUpload,
+        accept: ".fasta,.fa,.txt",
+        items: asArray(fastaData),
+        value: String(currentChromosomeObject?.name ?? ""),
+        onSelect: (value) => selectUid(value, setChromosomeObject, "chromosome"),
+        emptyText: currentLabel("chromosome", currentChromosomeObject?.name),
+        selectTitle: currentLabel("chromosome", currentChromosomeObject?.name, true),
+      },
+    ],
+    [ zipFile, file, logoTrackFile, npyMatrixFile, fastaFile, heatmapUids, logoUids, matrixUids, fastaData, currentMainHeatmapUid, currentLogoTrackUid, matrixUid, currentChromosomeObject, handleZIPUpload, handleUpload, handleLogoTrackUpload, handleNpyMatrixUpload, handleFastaUpload, toggleMatrixMode, toggleLineMode, matrixEnabled, lineModeEnabled, canActivateLines,
+    ]
+  );
 
   return (
-    <aside style={sidebar}>
-      {showUuidPicker && (
-        <>
-          <div style={{ display: "grid", gap: 8 }}>
-            <div style={sectionTitle}>UUID / Tileset (heatmap)</div>
+    <>
+      <style>{sidebarScrollHiddenCss}</style>
 
-            <label style={labelGrid}>
-              <span style={labelHint}>Select uuid</span>
-              <select value={selectedUuid || ""} onChange={handleUuidSelect} style={select}>
-                {availableTilesets.length === 0 ? (
-                  <option value={selectedUuid || ""} style={selectOption}>
-                    {selectedUuid || "—"}
-                  </option>
-                ) : (
-                  availableTilesets.map((t, i) => {
-                    const value = t?.uuid ?? t?.uid ?? "";
-                    return (
-                      <option key={value || `tileset-${i}`} value={value} style={selectOption}>
-                        {value || "(missing uuid)"}
-                      </option>
-                    );
-                  })
-                )}
-              </select>
-            </label>
-
-            <div style={smallMuted}>
-              Loaded tilesets: {availableTilesets.length || 0}
-              {tilesetFetchInFlight ? " · updating…" : ""}
-            </div>
-          </div>
-
-          <div style={divider} />
-        </>
-      )}
-
-      <div style={{ display: "grid", gap: 10 }}>
-        <div style={sectionTitle}>main heatmap upload Nx3xNx4.npy file</div>
-        <FileUploadInline
-          file={file}
-          setFile={setFile}
-          onUpload={onHeatmapUpload}
-          busy={busyMain}
-          accept=".npy"
-        />
-      </div>
-
-      <div style={divider} />
-
-      <div style={{ display: "grid", gap: 8 }}>
-        <div style={sectionTitle}>logo track upload Nx4.npy file</div>
-        <div style={uploadHint}>.npy shape N×4</div>
-        <FileUploadInline
-          file={logoTrackFile}
-          setFile={setLogoTrackFile}
-          onUpload={onLogoUpload}
-          busy={busyLogo}
-          accept=".npy"
-        />
-      </div>
-
-      <div style={divider} />
-
-      <div style={{ display: "grid", gap: 8 }}>
-        <div style={sectionTitle}>matrix upload NxK.npy file</div>
-        <FileUploadInline
-          file={npyMatrixFile}
-          setFile={setNpyMatrixFile}
-          onUpload={onMatrixUpload}
-          busy={busyMatrix}
-          accept=".npy"
-        />
-
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <button
-            type="button"
-            onClick={toggleMatrixMode}
-            style={button}
-            title={matrixUid ? `matrixUid=${matrixUid}` : ""}
-          >
-            {matrixEnabled ? "matrix tracks: on" : "matrix tracks: off"}
-          </button>
-
-          <button
-            type="button"
-            onClick={toggleLineMode}
-            disabled={!canActivateLines}
-            style={{
-              ...button,
-              opacity: canActivateLines ? 1 : 0.4,
-              cursor: canActivateLines ? "pointer" : "not-allowed",
-            }}
-          >
-            {lineModeEnabled ? "line mode: on" : "line mode: off"}
-          </button>
-        </div>
-
-        <div style={smallMuted}>matrixUid: {matrixUid || "—"}</div>
-      </div>
-
-      <div style={divider} />
-
-      <div
-        style={{
-          display: "grid",
-          gap: 10,
-          padding: 12,
-          borderRadius: 12,
-          background: "rgba(255,255,255,0.04)",
-          border: "1px solid rgba(255,255,255,0.10)",
-        }}
+      <aside
+        className="sidebar-scroll-hidden"
+        style={{ ...sidebar, minHeight: 0, overflowY: "auto", overflowX: "hidden" }}
       >
-        <div style={sectionTitle}>sequence upload {">name:startpos-endpos\\nSEQ.fasta file"}</div>
+        {sections.map(({ title, grid, extra, ...uploadProps }, i) => (
+          <div key={title}>
+            <div style={grid}>
+              <div style={sectionTitle}>{title}</div>
+              <FileUpload {...uploadProps} busy={allBusy} />
+              {extra}
+            </div>
+            {i < sections.length - 1 && <div style={divider} />}
+          </div>
+        ))}
 
-        <FileUploadInline
-          file={fastaFile}
-          setFile={setFastaFile}
-          onUpload={handleFastaUpload}
-          busy={fastaBusy}
-          accept=".fasta,.fa,.txt"
-        />
+        <div style={divider} />
 
-        {fastaContent && (
-          <div style={{ marginTop: 10, color: "rgba(255,255,255,0.70)", fontSize: 12 }}></div>
-        )}
-      </div>
-
-      <div style={divider} />
-
-      <div style={hoverBlock}>
-        <div>Hover cell: {formatDisplayLine(hoverDisplay)}</div>
-        <div style={hoverLine}>Last click: {formatDisplayLine(clickedDisplay)}</div>
-        <div style={hoverLine}>
-          <div style={hoverLine}>chromosome name: {chromosomeName || "unknown"}</div>
+        <div style={hoverBlock}>
+          <div>Hover cell: {formatDisplayLine(hoverDisplay)}</div>
+          <div style={hoverLine}>Last click: {formatDisplayLine(clickedDisplay)}</div>
+          <div style={hoverLine}>chromosome name: {currentChromosomeObject?.name || "unknown"}</div>
+          <div style={hoverLine}>absolute position: {currentChromosomeObject?.absolutePosition ?? "—"}</div>
         </div>
-      </div>
 
-      <div style={divider} />
+        <div style={divider} />
 
-      <ConsoleBoxInline lines={logs} />
+        <div style={consoleWrap}>
+          <ConsoleBoxInline lines={logs} />
+        </div>
 
-      <div style={divider} />
+        <div style={divider} />
 
-      <div style={backendRowInStatus}>
-        <span style={backendDotSmall(backendDotColor)} />
-        <div style={backendTextEllipsis}>Server test: {backendText}</div>
-      </div>
-    </aside>
+        <div style={backendRowInStatus}>
+          <span style={backendDotSmall(backendDotColor)} />
+          <div style={backendTextEllipsis}>Backend availability: {backendText}</div>
+        </div>
+      </aside>
+    </>
   );
 }

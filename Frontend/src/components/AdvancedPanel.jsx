@@ -1,4 +1,6 @@
 import React from "react";
+
+//TODO remove entire component at some point
 import {
   advancedWrap,
   advancedCard,
@@ -27,9 +29,9 @@ export default function AdvancedPanel({
   sequenzActivated,
   logoActivated,
   runAction,
-  convertPt,
-  convertNpy,
-  reupload,
+  //convertPt,
+  //convertNpy,
+  //reupload,
   showUuidPicker,
   logoTrackUsed,
   backendText,
@@ -78,22 +80,8 @@ export default function AdvancedPanel({
 
             <button type="button" onClick={onToggleSequenz} style={button}>
               {sequenzActivated ? "sequence track: on" : "sequence track: off"}
-            </button>
-          </div>
-
-          <div style={advancedRowRight}>
-            <button type="button" onClick={() => runAction("convert", convertPt)} style={button}>
-              convert pt
-            </button>
-
-            <button type="button" onClick={() => runAction("convert", convertNpy)} style={button}>
-              convert npy
-            </button>
-
-            <button type="button" onClick={() => runAction("reupload", reupload)} style={button}>
-              reupload
-            </button>
-
+            </button>     
+            
             <button
               type="button"
               onClick={() => {
@@ -105,6 +93,7 @@ export default function AdvancedPanel({
               log test
             </button>
           </div>
+
         </div>
 
         <div style={{ display: "grid", gap: 8, marginTop: 12 }}>

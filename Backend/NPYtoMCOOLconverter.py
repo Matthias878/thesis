@@ -3,7 +3,6 @@
 import numpy as np
 import pandas as pd
 import cooler
-import scipy.sparse as sp
 import subprocess
 import os
 import re
@@ -158,12 +157,15 @@ if __name__ == "__main__":
     # --- pixels table (upper triangle) ---
     print(">>> Building pixels table (upper triangle)...")
     Au = np.triu(A, k=0)
-    coo = sp.coo_matrix(Au)
+    # set threshold for filtering
+    mask = np.abs(Au) > 1e-12  # or only 0 mask = Au != 0  
+    rows, cols = np.where(mask)
+    values = Au[rows, cols]
 
     pixels = pd.DataFrame({
-        "bin1_id": coo.row.astype(np.int64),
-        "bin2_id": coo.col.astype(np.int64),
-        "count":   coo.data
+        "bin1_id": rows.astype(np.int64),
+        "bin2_id": cols.astype(np.int64),
+        "count":   values
     })
 
     print(f">>> pixels rows: {len(pixels)}")

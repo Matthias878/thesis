@@ -1,5 +1,4 @@
-// src/utils/backendDisplay.js
-
+//TODO maybe integrate into StatusSystem
 export function getBackendDotColor(backend) {
   return backend?.level === "down"
     ? "#ff3b3b"

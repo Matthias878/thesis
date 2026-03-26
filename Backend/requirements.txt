@@ -4,7 +4,6 @@ uvicorn[standard]
 numpy
 pandas
 cooler
-scipy
 python-multipart
 
 pyBigWig

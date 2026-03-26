@@ -3,6 +3,8 @@ import "higlass-multivec";
 import { HiGlassComponent } from "higlass";
 import { main, viewerFrame } from "../styles/appStyles";
 
+//TODO maybe put back into App.jsx?
+
 export default function Viewer({
   viewerKey,
   onHiGlassRef,

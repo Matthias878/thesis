@@ -1,11 +1,13 @@
 export const page = {
-  minHeight: "100svh",
+  height: "100svh",
+  minHeight: 0,
   background:
     "radial-gradient(1200px 600px at 20% 10%, rgba(80,120,255,0.16), transparent 60%), #070a0f",
   color: "white",
   fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif",
   display: "flex",
   flexDirection: "column",
+  overflow: "hidden",
 };
 
 // --- top/advanced area -------------------------------------------------
@@ -24,7 +26,6 @@ export const advancedButton = (pressed) => ({
   borderRadius: 999,
   fontWeight: 800,
   opacity: pressed ? 1 : 0.85,
-
   border: "1px solid rgba(255,255,255,0.14)",
   background: "rgba(255,255,255,0.08)",
   color: "white",
@@ -41,7 +42,6 @@ export const advancedCard = {
   background: "rgba(255,255,255,0.06)",
   border: "1px solid rgba(255,255,255,0.10)",
   boxShadow: "0 10px 30px rgba(0,0,0,0.25)",
-
   padding: 12,
   display: "grid",
   gap: 10,
@@ -125,6 +125,7 @@ export const shell = {
   minWidth: 0,
   boxSizing: "border-box",
   padding: 14,
+  overflow: "hidden",
 };
 
 // --- cards --------------------------------------------------------------
@@ -140,15 +141,15 @@ export const card = {
 export const sidebar = {
   ...card,
   padding: 14,
-  display: "grid",
+  display: "flex",
+  flexDirection: "column",
   gap: 14,
-
   flex: "0 0 360px",
   minWidth: 280,
   maxWidth: 420,
-
+  minHeight: 0,
   overflowX: "hidden",
-  overflowY: "visible",
+  overflowY: "auto",
 };
 
 // Main nimmt Restbreite und darf schrumpfen
@@ -159,6 +160,9 @@ export const main = {
   minWidth: 0,
   overflow: "hidden",
   boxSizing: "border-box",
+  minHeight: 0,
+  display: "flex",
+  flexDirection: "column",
 };
 
 export const button = {
@@ -213,6 +217,98 @@ export const uploadHint = {
   fontSize: 12,
   color: "rgba(255,255,255,0.75)",
 };
+
+// --- extracted reusable sidebar bits -----------------------------------
+
+export const sectionGrid8 = {
+  display: "grid",
+  gap: 8,
+};
+
+export const sectionGrid10 = {
+  display: "grid",
+  gap: 10,
+};
+
+export const wrapRow = {
+  display: "flex",
+  gap: 8,
+  alignItems: "center",
+  flexWrap: "wrap",
+};
+
+export const panelCard = {
+  display: "grid",
+  gap: 10,
+  padding: 12,
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.04)",
+  border: "1px solid rgba(255,255,255,0.10)",
+};
+
+export const uploadLabel = {
+  color: "rgba(255,255,255,0.75)",
+  fontSize: 12,
+};
+
+export const fileInput = {
+  padding: 10,
+  borderRadius: 10,
+  background: "rgba(255,255,255,0.06)",
+  border: "1px solid rgba(255,255,255,0.12)",
+  color: "white",
+};
+
+export const uploadButton = (disabled) => ({
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(255,255,255,0.14)",
+  background: disabled ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.10)",
+  color: "white",
+  cursor: disabled ? "not-allowed" : "pointer",
+  fontWeight: 600,
+});
+
+export const uploadSelectedText = {
+  color: "rgba(255,255,255,0.70)",
+  fontSize: 12,
+};
+
+export const consoleWrap = {
+  flex: "1 1 220px",
+  minHeight: 180,
+  minWidth: 0,
+};
+
+export const consoleBox = {
+  margin: 0,
+  padding: 12,
+  borderRadius: 10,
+  background: "#0b0f14",
+  color: "#9ef7a6",
+  fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+  fontSize: 12,
+  lineHeight: 1.35,
+  height: "100%",
+  minHeight: 180,
+  overflow: "auto",
+  border: "1px solid rgba(255,255,255,0.08)",
+  whiteSpace: "pre-wrap",
+  boxSizing: "border-box",
+};
+
+export const sidebarScrollHiddenCss = `
+  .sidebar-scroll-hidden {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .sidebar-scroll-hidden::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+`;
 
 // --- status line --------------------------------------------------------
 
@@ -272,12 +368,12 @@ export const hoverLine = {
 
 // --- viewer -------------------------------------------------------------
 
-export const viewerFrame = (advancedOpen) => ({
+export const viewerFrame = () => ({
   position: "relative",
   borderRadius: 12,
   overflow: "hidden",
   border: "1px solid rgba(255,255,255,0.10)",
-  height: advancedOpen ? "calc(100vh - 170px)" : "calc(100vh - 110px)",
-  minHeight: 520,
+  height: "100%",
+  minHeight: 0,
   background: "rgba(0,0,0,0.25)",
 });

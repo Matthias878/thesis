@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import "higlass/dist/hglib.css";
 
 import AdvancedPanel from "./components/AdvancedPanel";
@@ -7,19 +7,9 @@ import Viewer from "./components/Viewer";
 
 import { HIGLASS_SERVER, ts } from "./config";
 import { useBackendStatus } from "./api/StatusSystem";
-import {
-  convertNpy,
-  convertPt,
-  reupload,
-  waitForHiGlassTilesetInfo,
-} from "./api/higlassApi";
 
-import { useTilesets } from "./higlass/useTilesets";
-import { useHiGlassController } from "./higlass/useHiGlassControllerWithFasta";
-import {
-  useHeatmapViewConfig,
-  useTilesetInfo,
-} from "./higlass/useHeatmapViewConfig";
+import { useHiGlassControllerWithFasta } from "./higlass/useHiGlassControllerWithFasta";
+import { useRenderViewConfig } from "./higlass/useHeatmapViewConfig";
 
 import { baseUrl } from "./utils/appUtils";
 import {
@@ -32,9 +22,6 @@ import { page, topbar, shell, advancedButton } from "./styles/appStyles";
 export default function App() {
   const [logs, setLogs] = useState([`[${ts()}] app started`]);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [sequenceOverrideInput, setSequenceOverrideInput] = useState("");
-  const [sequenceOverrideApplied, setSequenceOverrideApplied] = useState("");
-  const [matrixUid, setMatrixUid] = useState("");
   const [viewerKey, setViewerKey] = useState(0);
 
   const addLog = useCallback((line) => {
@@ -50,16 +37,6 @@ export default function App() {
     addLog(`DEBUG tilesets="${base}/tilesets/"`);
   }, [addLog]);
 
-  const {
-    availableTilesets,
-    selectedUuid,
-    setSelectedUuid,
-    showUuidPicker,
-    toggleUuidPicker,
-    tilesetFetchInFlight,
-    refreshTilesets,
-  } = useTilesets(addLog);
-
   const backend = useBackendStatus({
     baseUrl: import.meta.env.VITE_BACKEND_BASE_URL || "http://localhost:8000",
     key: "current_input",
@@ -71,6 +48,39 @@ export default function App() {
   const backendDotColor = getBackendDotColor(backend);
   const backendText = getBackendText(backend);
 
+  const reloadViewer = useCallback(() => {
+    addLog("viewer reload requested");
+    setViewerKey((k) => k + 1);
+  }, [addLog]);
+
+  const {
+    config: viewConfig,
+    main_heatmapUid,
+    matrixUid,
+    logo_trackUid,
+    current_chromosome_object,
+    lineMode,
+    matrixActivated,
+    logoActivated,
+    sequence_trackActivated,
+    canActivateLines,
+    all_main_heatmapUids,
+    all_matrixUids,
+    all_logoUids,
+    all_chromosome_objects,
+    setMainHeatmapUid,
+    setMatrixUid,
+    setLogoTrackUid,
+    set_chromosome_object,
+    toggleLineMode,
+    toggleMatrixMode,
+    toggleLogoMode,
+    toggleSequenceTrackMode,
+  } = useRenderViewConfig({
+    addLog,
+    onConfigApplied: reloadViewer,
+  });
+
   const {
     onHiGlassRef,
     clearApi,
@@ -79,89 +89,16 @@ export default function App() {
     positionDisplay,
     hoverDisplay,
     clickedDisplay,
-    fastaMeta,
     fastaFile,
     setFastaFile,
     fastaBusy,
     fastaContent,
     handleFastaUpload,
-  } = useHiGlassController({ addLog });
-
-  const reloadViewer = useCallback(() => {
-    addLog("viewer reload requested");
-    clearApi();
-    setViewerKey((k) => k + 1);
-  }, [addLog, clearApi]);
-
-  const effectiveSequence =
-    sequenceOverrideApplied.trim() || fastaMeta.sequence || "";
-
-  const {
-    config: viewConfig,
-    setHeatmapUid,
-    setMatrixUidAndRowcount,
-    setLogoUid,
-    toggleLineMode,
-    toggleMatrixMode,
-    toggleLogoMode,
-    toggleSequenzMode,
-    matrixActivated,
-    lineMode,
-    canActivateLines,
-    sequenzActivated,
-    logoActivated,
-    logoTilesetUid,
-  } = useHeatmapViewConfig({
+  } = useHiGlassControllerWithFasta({
     addLog,
-    sequenz: effectiveSequence,
+    current_chromosome_object,
+    set_chromosome_object,
   });
-
-  const { rowCount: matrixRowCount } = useTilesetInfo(matrixUid, {
-    enabled: Boolean(matrixUid),
-    addLog,
-    timeoutMs: 60000,
-    intervalMs: 1000,
-  });
-
-  useEffect(() => {
-    setHeatmapUid(selectedUuid || null);
-  }, [selectedUuid, setHeatmapUid]);
-
-  useEffect(() => {
-    if (!matrixUid) {
-      setMatrixUidAndRowcount(null, 0);
-      return;
-    }
-    setMatrixUidAndRowcount(matrixUid, matrixRowCount || 0);
-  }, [matrixUid, matrixRowCount, setMatrixUidAndRowcount]);
-
-  const applySequenceOverride = useCallback(() => {
-    const next = sequenceOverrideInput.trim();
-    setSequenceOverrideApplied(next);
-    addLog(
-      next
-        ? `sequence override applied (${next.length} chars)`
-        : "sequence override cleared -> using FASTA sequence"
-    );
-    reloadViewer();
-  }, [sequenceOverrideInput, addLog, reloadViewer]);
-
-  const clearSequenceOverride = useCallback(() => {
-    setSequenceOverrideInput("");
-    setSequenceOverrideApplied("");
-    addLog("sequence override cleared -> using FASTA sequence");
-    reloadViewer();
-  }, [addLog, reloadViewer]);
-
-  const waitForTilesetInfo = useCallback(
-    (uids, options = {}) =>
-      waitForHiGlassTilesetInfo(uids, {
-        addLog,
-        onReady: reloadViewer,
-        ...options,
-      }),
-    [addLog, reloadViewer]
-  );
 
   const onToggleMatrix = useCallback(() => {
     toggleMatrixMode();
@@ -173,16 +110,17 @@ export default function App() {
       addLog("line-mode button blocked: canActivateLines=false");
       return;
     }
+
     toggleLineMode();
     addLog("line-mode button pressed -> toggleLineMode()");
     reloadViewer();
   }, [canActivateLines, toggleLineMode, addLog, reloadViewer]);
 
   const onToggleSequenz = useCallback(() => {
-    toggleSequenzMode();
-    addLog("sequence button pressed -> toggleSequenzMode()");
+    toggleSequenceTrackMode();
+    addLog("sequence button pressed -> toggleSequenceTrackMode()");
     reloadViewer();
-  }, [toggleSequenzMode, addLog, reloadViewer]);
+  }, [toggleSequenceTrackMode, addLog, reloadViewer]);
 
   const toggleLogoTracks = useCallback(() => {
     toggleLogoMode();
@@ -202,41 +140,6 @@ export default function App() {
     [addLog]
   );
 
-  const handleUuidSelect = useCallback(
-    (e) => {
-      const newUid = e.target.value;
-      addLog(`switching heatmap tilesetUid -> "${newUid}"`);
-      setSelectedUuid(newUid);
-    },
-    [addLog, setSelectedUuid]
-  );
-
-  const selectedPresenceRef = useRef({ uid: null, wasPresent: false });
-
-  useEffect(() => {
-    const uid = selectedUuid;
-    if (!uid) return;
-
-    if (selectedPresenceRef.current.uid !== uid) {
-      selectedPresenceRef.current = { uid, wasPresent: false };
-    }
-
-    const isPresent = availableTilesets.some(
-      (t) => (t?.uuid ?? t?.uid) === uid
-    );
-
-    if (!selectedPresenceRef.current.wasPresent && isPresent) {
-      selectedPresenceRef.current.wasPresent = true;
-      addLog(
-        `selectedUuid "${uid}" appeared in availableTilesets -> reloading viewer`
-      );
-      reloadViewer();
-      return;
-    }
-
-    selectedPresenceRef.current.wasPresent = isPresent;
-  }, [selectedUuid, availableTilesets, addLog, reloadViewer]);
-
   const posSource = positionDisplay ?? pos;
   const { posLeft, posRight } = getPosLeftRight(posSource);
 
@@ -247,6 +150,8 @@ export default function App() {
           posSource?.span != null ? ` (span ${posSource.span})` : ""
         }`
       : "—");
+
+  const fastaData = all_chromosome_objects.map((item) => item.name);
 
   return (
     <div style={page}>
@@ -263,7 +168,6 @@ export default function App() {
       {advancedOpen && (
         <AdvancedPanel
           reloadViewer={reloadViewer}
-          toggleUuidPicker={toggleUuidPicker}
           toggleLogoTracks={toggleLogoTracks}
           onToggleMatrix={onToggleMatrix}
           onToggleLineMode={onToggleLineMode}
@@ -271,62 +175,49 @@ export default function App() {
           onToggleSequenz={onToggleSequenz}
           matrixEnabled={matrixActivated}
           lineModeEnabled={lineMode}
-          sequenzActivated={sequenzActivated}
+          sequenzActivated={sequence_trackActivated}
           logoActivated={logoActivated}
           runAction={runAction}
-          convertPt={convertPt}
-          convertNpy={convertNpy}
-          reupload={reupload}
-          showUuidPicker={showUuidPicker}
-          logoTrackUsed={Boolean(logoTilesetUid)}
+          logoTrackUsed={Boolean(logo_trackUid)}
           busyAny={false}
           backendText={backendText}
           backendDotColor={backendDotColor}
           posText={posText}
-          selectedUuid={selectedUuid}
+          selectedUuid={main_heatmapUid}
           addLog={addLog}
-          sequenceOverrideInput={sequenceOverrideInput}
-          setSequenceOverrideInput={setSequenceOverrideInput}
-          sequenceOverrideApplied={sequenceOverrideApplied}
-          fastaSequence={fastaMeta.sequence || ""}
-          onApplySequenceOverride={applySequenceOverride}
-          onClearSequenceOverride={clearSequenceOverride}
+          fastaSequence={current_chromosome_object?.sequence || ""}
         />
       )}
 
       <div style={shell}>
         <Sidebar
-          showUuidPicker={showUuidPicker}
-          availableTilesets={availableTilesets}
-          selectedUuid={selectedUuid}
-          handleUuidSelect={handleUuidSelect}
-          tilesetFetchInFlight={tilesetFetchInFlight}
           addLog={addLog}
-          refreshTilesets={refreshTilesets}
-          waitForHiGlassTilesetInfo={waitForTilesetInfo}
-          setSelectedUuid={setSelectedUuid}
-          setLogoUid={setLogoUid}
+          setMainHeatmapUid={setMainHeatmapUid}
+          setLogoTrackUid={setLogoTrackUid}
           setMatrixUid={setMatrixUid}
-          currentSelectedUuid={selectedUuid}
+          setChromosomeObject={set_chromosome_object}
+          currentMainHeatmapUid={main_heatmapUid}
+          currentLogoTrackUid={logo_trackUid}
           matrixUid={matrixUid}
+          currentChromosomeObject={current_chromosome_object}
           matrixEnabled={matrixActivated}
           lineModeEnabled={lineMode}
           canActivateLines={canActivateLines}
           toggleMatrixMode={onToggleMatrix}
           toggleLineMode={onToggleLineMode}
           logs={logs}
-          posLeft={posLeft}
-          posRight={posRight}
           backendDotColor={backendDotColor}
           backendText={backendText}
           hoverDisplay={hoverDisplay}
           clickedDisplay={clickedDisplay}
-          chromosomeName={fastaMeta.chromosomeName}
           fastaFile={fastaFile}
           setFastaFile={setFastaFile}
           fastaBusy={fastaBusy}
           handleFastaUpload={handleFastaUpload}
-          fastaContent={fastaContent}
+          heatmapUids={all_main_heatmapUids}
+          matrixUids={all_matrixUids}
+          logoUids={all_logoUids}
+          fastaData={fastaData}
         />
 
         <Viewer

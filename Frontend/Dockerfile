@@ -10,7 +10,7 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-# ---------- runtime stage ----------
+# ---------- runtime stage ---------- FROM discards older FROMs
 FROM nginx:alpine AS prod
 RUN rm -f /etc/nginx/conf.d/default.conf
 COPY nginx.conf /etc/nginx/conf.d/default.conf
@@ -19,4 +19,6 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 
 EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+#command irrelevant, only needed for startFrontend.py
+CMD ["nginx", "-g", "daemon off;"] 
+

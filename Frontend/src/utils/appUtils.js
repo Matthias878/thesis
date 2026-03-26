@@ -1,5 +1,4 @@
-// src/utils/appUtils.js
-
+//TODO maybe put back into App.jsx
 // normalize base URL: remove trailing slash
 export const baseUrl = (s) => String(s).replace(/\/$/, "");
 
@@ -24,6 +23,3 @@ export async function waitFor(check, { timeoutMs = 60000, intervalMs = 500 } = {
   }
   return false;
 }
-
-// try different keys returned by backend for tileset ID
-export const extractUuid = (j) => j?.uuid || j?.tilesetUid || j?.uid || "";

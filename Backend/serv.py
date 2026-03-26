@@ -6,6 +6,10 @@ import subprocess
 import re
 import numpy as np
 from pathlib import Path
+import zipfile
+import tempfile
+
+#TODO duplicate functionality, refactor -> callers/doers
 
 app = FastAPI()
 
@@ -22,6 +26,54 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(REUPLOAD_DIR, exist_ok=True)
 
 statuses = {}
+
+
+def read_fasta_name_sequence_startpos(filepath):
+    """
+    Expected FASTA format:
+
+    >CHROMOSOME_NAME:STARTNUMBER-ENDNUMBER
+    SEQUENCE
+
+    Example:
+    >myawesomeChromosome79:7558-7567
+    AACCGGTTTG
+
+    Returns:
+        dict with:
+        - name
+        - sequence
+        - startpos
+
+    Raises:
+        ValueError: if the file content does not match the expected format
+    """
+    text = Path(filepath).read_text(encoding="utf-8")
+
+    if not text.strip():
+        raise ValueError("FASTA file is empty")
+
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+
+    header = next((line for line in lines if line.startswith(">")), "")
+    sequence = "".join(line for line in lines if not line.startswith(">"))
+
+    match = re.match(r"^>(.+):(\d+)-(\d+)$", header)
+    if not match:
+        raise ValueError('Expected header format ">NAME:START-END"')
+
+    name = match.group(1)
+    startpos = int(match.group(2))
+    # endpos = int(match.group(3))  # parsed the same way, but unused here
+
+    if not sequence:
+        raise ValueError("Sequence is empty")
+
+    return {
+        "name": name,
+        "sequence": sequence,
+        "startpos": startpos,
+    }
 
 
 def set_status(msg: str):
@@ -75,7 +127,8 @@ def check_npy_readable(path: str) -> tuple[bool, str]:
     except Exception as e:
         return False, f"npy load failed: {type(e).__name__}: {e}"
 
-#helper, index 
+
+# helper, index
 def get_next_index(counter_file="counter.txt"):
     # ensure file exists
     counter_file_path = os.path.join(REUPLOAD_DIR, counter_file)
@@ -95,9 +148,197 @@ def get_next_index(counter_file="counter.txt"):
 
     return value
 
-#call with:
-#curl.exe -X POST "http://127.0.0.1:8000/new_file" -F "file=@./uploads/start_up_input.npy"
-#
+
+def safe_name(name: str) -> str:
+    name = Path(name).name  # drops any directories
+    name = re.sub(r"[^A-Za-z0-9._-]+", "_", name)
+    return name or "upload.npy"
+
+
+def _safe_delete(path: str) -> None:
+    if not path:
+        return
+    if os.path.exists(path):
+        print(f"Deleting existing file: {path}")
+        try:
+            os.remove(path)
+        except OSError as e:
+            raise RuntimeError(f"Failed to delete existing file '{path}': {e}") from e
+
+
+def classify_npy_file(path: str) -> tuple[str, tuple]:
+    """
+    Returns (kind, shape), where kind is one of:
+      - 'heatmap'
+      - 'matrix'
+      - 'logotrack'
+      - 'unknown'
+
+    Heuristics:
+      1. Filename hints first
+      2. 4D Nx3xNx4 => heatmap
+      3. Square 2D => heatmap
+      4. Non-square 2D with values in [0,1] and row sums ~1 => logotrack
+      5. Other non-square 2D => matrix
+    """
+    filename = Path(path).name.lower()
+
+    try:
+        arr = np.load(path, allow_pickle=True)
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to read npy file '{Path(path).name}': {type(e).__name__}: {e}",
+        )
+
+    shape = getattr(arr, "shape", ())
+
+    # filename hints first
+    if "heatmap" in filename or "mcool" in filename:
+        return "heatmap", shape
+    if "logo" in filename or "track" in filename:
+        return "logotrack", shape
+    if "matrix" in filename:
+        return "matrix", shape
+
+    # explicit heatmap tensor format: Nx3xNx4
+    if arr.ndim == 4:
+        if len(shape) == 4 and shape[0] == shape[2] and shape[1] == 3 and shape[3] == 4:
+            return "heatmap", shape
+
+    # square 2D heatmap fallback
+    if arr.ndim == 2 and shape[0] == shape[1]:
+        return "heatmap", shape
+
+    # 2D non-square: logotrack vs matrix
+    if arr.ndim == 2 and shape[0] != shape[1]:
+        try:
+            arrf = np.asarray(arr, dtype=float)
+            finite = np.isfinite(arrf).all()
+            in_01 = arrf.min() >= 0 and arrf.max() <= 1
+            row_sums = arrf.sum(axis=1)
+            rows_sum_to_1 = np.allclose(row_sums, 1.0, atol=1e-3)
+
+            if finite and in_01 and rows_sum_to_1:
+                return "logotrack", shape
+        except Exception:
+            pass
+
+        return "matrix", shape
+
+    return "unknown", shape
+
+def convert_heatmap_file(npy_path: str, original_name: str | None = None) -> str:
+    filename = original_name or Path(npy_path).name
+    out_base = safe_stem(filename)
+    out_dir = Path(REUPLOAD_DIR)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    print(">>> Starting conversion pipeline")
+    set_status("starting conversion pipeline")
+
+    obj = np.load(npy_path, allow_pickle=True)
+    print(f">>> Heatmap shape: {getattr(obj, 'shape', None)}")
+
+    print(">>> Running DimensionReducer.py")
+    run_cmd(["python", "DimensionReducer.py", npy_path], "npy:dimension_reducer")
+
+    print(">>> Running NPYtoMCOOLconverter.py")
+    idx = get_next_index()
+    run_cmd(["python", "NPYtoMCOOLconverter.py", str(idx)], "npy->mcool")
+
+    print(">>> Conversion pipeline finished.")
+
+    output_path = os.path.join(REUPLOAD_DIR, "npy_file_" + str(idx) + ".mcool")
+
+    print(f">>> Checking expected temp file: {output_path}")
+    if not os.path.exists(output_path):
+        print("!!! ERROR: No .mcool file found after conversion.")
+        set_status("error: conversion finished but no .mcool file found")
+        raise HTTPException(
+            status_code=500,
+            detail="Conversion finished but no .mcool file was found in McoolOutput",
+        )
+    else:
+        print(f">>> Found file: {output_path}")
+        mcool_tmp = Path(output_path)
+        mcool_done = mcool_tmp.with_suffix(mcool_tmp.suffix + ".done")
+        print(f">>> Renaming {mcool_tmp} → {mcool_done}")
+        mcool_tmp.rename(mcool_done)
+
+    print(">>> SUCCESS: Conversion complete.")
+    set_status("done: output ready")
+
+    return os.path.join("npy_file_" + str(idx))
+
+
+def convert_matrix_file(npy_path: str) -> str:
+    global name
+    global ouname
+
+    idx = get_next_index()
+
+    run_cmd(["python", "Create_mv5_fromnpy.py", str(npy_path), str(idx)], "npy->mv5")
+
+    output_path = os.path.join(REUPLOAD_DIR, f"npy_file_{idx}.multires.mv5")
+    ouname_local = f"npy_file_{idx}"
+
+    print(f">>> Checking expected temp file: {output_path}")
+    if not os.path.exists(output_path):
+        set_status("error: conversion finished but no .mv5 file found")
+        raise HTTPException(
+            status_code=500,
+            detail="Conversion finished but no .mv5 file was found in   McoolOutput",
+        )
+
+    mv5_done = output_path + ".done"
+    print(f">>> Renaming {output_path} → {mv5_done}")
+    os.replace(output_path, mv5_done)
+
+    # keep globals aligned with current matrix upload flow
+    name = str(npy_path)
+    ouname = ouname_local
+
+    # create bigwigs for the matrix, same intent as upload_nxk_npy_bigwig
+    subprocess.run(
+        ["python", "create_bigwigs_from_matrix.py", "--in", name, "--out", ouname]
+    )
+
+    for file in Path(REUPLOAD_DIR).glob("*.bigWig"):
+        if not str(file).endswith(".done"):
+            file.rename(file.with_suffix(".bigWig.done"))
+
+    return ouname_local
+
+
+def convert_logotrack_file(npy_path: str) -> str:
+    idx = get_next_index()
+
+    run_cmd(
+        ["python", "Create_mv5_fromnpy.py", str(npy_path), "--out", f"npy_file_{idx}"],
+        "npy->mv5",
+    )
+
+    output_path = os.path.join(REUPLOAD_DIR, f"npy_file_{idx}.multires.mv5")
+
+    print(f">>> Checking expected temp file: {output_path}")
+    if not os.path.exists(output_path):
+        set_status("error: conversion finished but no .mv5 file found")
+        raise HTTPException(
+            status_code=500,
+            detail="Conversion finished but no .mv5 file was found in   McoolOutput",
+        )
+
+    mv5_done = output_path + ".done"
+    print(f">>> Renaming {output_path} → {mv5_done}")
+    os.replace(output_path, mv5_done)
+
+    return f"npy_file_{idx}"
+
+
+# call with:
+# curl.exe -X POST "http://127.0.0.1:8000/new_file" -F "file=@./uploads/start_up_input.npy"
+
 
 # upload main heatmap
 @app.post("/new_file")
@@ -124,7 +365,6 @@ async def new_file(file: UploadFile = File(...)):
             detail="Invalid file type. Only .pt and .npy allowed",
         )
 
-    # Saved in uploads/current_input.npy or .pt
     input_path = os.path.join(UPLOAD_DIR, "current_input" + ext)
 
     set_status(f"saving upload to {input_path}")
@@ -144,29 +384,15 @@ async def new_file(file: UploadFile = File(...)):
     print(f">>> Saved file exists? {os.path.exists(input_path)}")
     print(f">>> Saved file size: {os.path.getsize(input_path)} bytes")
 
-
     out_base = safe_stem(filename)
     out_dir = Path(REUPLOAD_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # --- Convert based on extension ---
     print(">>> Starting conversion pipeline")
     set_status("starting conversion pipeline")
 
-    #if ext == ".pt":
-    #    # get N once for chromsizes
-    #    obj = torch.load(input_path, map_location="cpu")
-    #    mat = obj if isinstance(obj, torch.Tensor) else next(
-    #        v for v in obj.values() if isinstance(v, torch.Tensor)
-    #    )
-    #    #write_chromsizes_tsv(chrom_len_bp=mat.shape[0])
-#
-    #    print(">>> Running PTtoMCOOLconverter.py")
-    #    run_cmd(["python", "PTtoMCOOLconverter.py", input_path], "pt->mcool")
-
     if ext == ".npy":
         obj = np.load(input_path, allow_pickle=True)
-        #write_chromsizes_tsv(chrom_len_bp=obj.shape[0])
 
         print(">>> Running DimensionReducer.py")
         run_cmd(["python", "DimensionReducer.py", input_path], "npy:dimension_reducer")
@@ -184,7 +410,6 @@ async def new_file(file: UploadFile = File(...)):
 
     print(">>> Conversion pipeline finished.")
 
-    # --- Find produced .mcool ---
     output_path = os.path.join(REUPLOAD_DIR, "npy_file_" + str(idx) + ".mcool")
 
     print(f">>> Checking expected temp file: {output_path}")
@@ -202,7 +427,6 @@ async def new_file(file: UploadFile = File(...)):
         print(f">>> Renaming {mcool_tmp} → {mcool_done}")
         mcool_tmp.rename(mcool_done)
 
-    # Finalize
     print(">>> SUCCESS: Conversion complete.")
 
     set_status("done: output ready")
@@ -215,19 +439,15 @@ async def new_file(file: UploadFile = File(...)):
         "uuid": os.path.join("npy_file_" + str(idx))
     }
 
-def safe_name(name: str) -> str:
-    name = Path(name).name  # drops any directories
-    name = re.sub(r"[^A-Za-z0-9._-]+", "_", name)
-    return name or "upload.npy"
-
 
 name = ""
 ouname = ""
 
+
 @app.post("/upload_nxk_npy")
 async def upload_nxk_npy(file: UploadFile = File(...)):
     global name
-    global ouname 
+    global ouname
     base = safe_name(file.filename)
 
     save_path = os.path.join(UPLOAD_DIR, f"nxk__{base}")
@@ -249,37 +469,162 @@ async def upload_nxk_npy(file: UploadFile = File(...)):
             status_code=500,
             detail="Conversion finished but no .mv5 file was found in   McoolOutput",
         )
-    
-    mv5_done = output_path + ".done"   # yields "...mv5.done"
+
+    mv5_done = output_path + ".done"
     print(f">>> Renaming {output_path} → {mv5_done}")
-    os.replace(output_path, mv5_done)  # atomic rename on same filesystem
+    os.replace(output_path, mv5_done)
 
     return {"status": "success", "uuid": f"npy_file_{idx}"}
 
-#load N*k matrix as bigwig files - should only be called after upload_nxk_npy by frontend
+
+# load N*k matrix as bigwig files - should only be called after upload_nxk_npy by frontend
 @app.get("/upload_nxk_npy_bigwig")
 async def upload_nxk_npy_bigwig():
-
-    #for each row in the matrix create a new .bigwig file (max 12) from current
     subprocess.run(["python", "create_bigwigs_from_matrix.py", "--in", name, "--out", ouname])
-    
+
     for file in Path(REUPLOAD_DIR).glob("*.bigWig"):
         file.rename(file.with_suffix(".bigWig.done"))
-    
+
     return {
         "status": "success",
         "message": "bigwig files generated and finalized (.bigWig.done)."
     }
 
 
-#get status
+# get status
 @app.get("/status/{key}")
 async def get_status(key: str):
     return {"status": statuses.get(key, "idle")}
 
 
+@app.post("/upload_zip_file")
+async def upload_zip_file(file: UploadFile = File(...)):
+    base = safe_name(file.filename)
 
-#upload logo track -multivec version 0-1 values sum to 1
+    save_path = os.path.join(UPLOAD_DIR, f"zip__{base}")
+    with open(save_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    print(f">>> Saved zip file: {save_path} (size: {os.path.getsize(save_path)} bytes)")
+    set_status(f"zip uploaded: {base}")
+
+    uuid_matrix = ""
+    uuid_heatmap = ""
+    uuid_logotrack = ""
+
+    fasta_name = ""
+    fasta_sequence = ""
+    fasta_startpos = None
+
+    detected = []
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="zip_extract_") as tmpdir:
+            try:
+                with zipfile.ZipFile(save_path, "r") as zf:
+                    zf.extractall(tmpdir)
+            except zipfile.BadZipFile:
+                raise HTTPException(status_code=400, detail="Uploaded file is not a valid zip archive")
+
+            npy_files = []
+            fasta_files = []
+
+            for root, _, files in os.walk(tmpdir):
+                for fname in files:
+                    full_path = os.path.join(root, fname)
+                    lower_name = fname.lower()
+
+                    if lower_name.endswith(".npy"):
+                        npy_files.append(full_path)
+                    elif lower_name.endswith(".fasta") or lower_name.endswith(".fa") or lower_name.endswith(".fna"):
+                        fasta_files.append(full_path)
+
+            if not npy_files:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Zip archive contains no .npy files",
+                )
+
+            print(f">>> Found {len(npy_files)} npy files in zip")
+            print(f">>> Found {len(fasta_files)} fasta files in zip")
+
+            # parse first fasta file if present
+            if fasta_files:
+                fasta_path = fasta_files[0]
+                print(f">>> Using fasta file: {fasta_path}")
+                fasta_meta = read_fasta_name_sequence_startpos(fasta_path)
+
+                fasta_name = fasta_meta["name"]
+                fasta_sequence = fasta_meta["sequence"]
+                fasta_startpos = fasta_meta["startpos"]
+
+                detected.append(
+                    {
+                        "file": Path(fasta_path).name,
+                        "kind": "fasta",
+                    }
+                )
+
+            classified = []
+            for npy_path in npy_files:
+                kind, shape = classify_npy_file(npy_path)
+                classified.append((npy_path, kind, shape))
+                detected.append(
+                    {
+                        "file": Path(npy_path).name,
+                        "kind": kind,
+                        "shape": list(shape) if isinstance(shape, tuple) else shape,
+                    }
+                )
+                print(f">>> classify: {Path(npy_path).name} -> {kind} shape={shape}")
+
+            heatmaps = [item for item in classified if item[1] == "heatmap"]
+            matrices = [item for item in classified if item[1] == "matrix"]
+            logotracks = [item for item in classified if item[1] == "logotrack"]
+            unknowns = [item for item in classified if item[1] == "unknown"]
+
+            if unknowns:
+                print(">>> Unknown files found in zip:")
+                for p, _, s in unknowns:
+                    print(f"    - {Path(p).name}: shape={s}")
+
+            # use the first matching file for each type
+            if heatmaps:
+                heatmap_path = heatmaps[0][0]
+                print(f">>> Using heatmap file: {heatmap_path}")
+                uuid_heatmap = convert_heatmap_file(heatmap_path, Path(heatmap_path).name)
+
+            if matrices:
+                matrix_path = matrices[0][0]
+                print(f">>> Using matrix file: {matrix_path}")
+                uuid_matrix = convert_matrix_file(matrix_path)
+
+            if logotracks:
+                logo_path = logotracks[0][0]
+                print(f">>> Using logo track file: {logo_path}")
+                uuid_logotrack = convert_logotrack_file(logo_path)
+
+            return {
+                "status": "success",
+                "message": "Zip file uploaded and conversion finished.",
+                "uuid_matrix": uuid_matrix,
+                "uuid_heatmap": uuid_heatmap,
+                "uuid_logotrack": uuid_logotrack,
+                "fasta_name": fasta_name,
+                "fasta_sequence": fasta_sequence,
+                "fasta_startpos": fasta_startpos,
+                "detected": detected,
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Zip processing failed: {type(e).__name__}: {e}",
+        )
+
+# upload logo track -multivec version 0-1 values sum to 1
 @app.post("/upload_logo_track")
 async def upload_logo_track(file: UploadFile = File(...)):
     base = safe_name(file.filename)
@@ -290,7 +635,10 @@ async def upload_logo_track(file: UploadFile = File(...)):
 
     idx = get_next_index()
 
-    run_cmd(    ["python", "Create_mv5_fromnpy.py", str(save_path), "--out", f"npy_file_{idx}"],    "npy->mv5")
+    run_cmd(
+        ["python", "Create_mv5_fromnpy.py", str(save_path), "--out", f"npy_file_{idx}"],
+        "npy->mv5",
+    )
 
     output_path = os.path.join(REUPLOAD_DIR, f"npy_file_{idx}.multires.mv5")
 
@@ -301,246 +649,14 @@ async def upload_logo_track(file: UploadFile = File(...)):
             status_code=500,
             detail="Conversion finished but no .mv5 file was found in   McoolOutput",
         )
-    
-    mv5_done = output_path + ".done"   # yields "...mv5.done"
+
+    mv5_done = output_path + ".done"
     print(f">>> Renaming {output_path} → {mv5_done}")
-    os.replace(output_path, mv5_done)  # atomic rename on same filesystem
+    os.replace(output_path, mv5_done)
 
     return {"status": "success", "uuid": f"npy_file_{idx}"}
 
 
-#helper functions
-
-
-def _safe_delete(path: str) -> None:
-    if not path:
-        return
-    if os.path.exists(path):
-        print(f"Deleting existing file: {path}")
-        try:
-            os.remove(path)
-        except OSError as e:
-            raise RuntimeError(f"Failed to delete existing file '{path}': {e}") from e
-        
-
 @app.get("/health")
 async def health():
     return {"status": "ok"}
-
-
-
-#------------------Below should no longer be necessary
-
-
-def write_chromsizes_tsv(chrom_len_bp: int) -> None:
-    """
-    Write/overwrite a chromsizes TSV file with exactly:
-        <chrom>\t<chrom_len_bp>\n
-    """
-    out_path = os.path.join("McoolOutput", "testchromome.chrom.sizes")
-    chrom = "testchromome"
-    out_dir = os.path.dirname(out_path)
-    if out_dir:
-        os.makedirs(out_dir, exist_ok=True)
-
-    _safe_delete(out_path)
-
-    line = f"{chrom}\t{int(chrom_len_bp)}\n"
-    with open(out_path, "w", encoding="utf-8", newline="\n") as f:
-        f.write(line)
-
-    print(f"Wrote chromsizes TSV: {out_path}")
-    print(f"  {chrom}\t{int(chrom_len_bp)}")
-
-    
-#upload logo track - temp 4 bigwig version
-@app.post("/upload_logo_track-TempUnused")
-async def upload_logo_track(file: UploadFile = File(...)):
-    statuses["current_input"] = "received new logo track file"
-    filename = file.filename
-    if not filename:
-        statuses["current_input"] = "error: no filename"
-        return {"status": "error", "message": "No filename provided"}
-
-    _, ext = os.path.splitext(filename)
-    ext = ext.lower()
-
-    if ext == ".npy":
-        statuses["current_input"] = "logo track has correct extension (.npy)"
-
-        # IMPORTANT: reconstruction_tensor.py expects this exact name
-        file_path = os.path.join(UPLOAD_DIR, "logo_track_data.npy")
-
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-
-        statuses["current_input"] = "saved logo track npy file"
-        try:
-            obj = np.load(file_path, allow_pickle=True)
-            if obj.ndim != 2 or obj.shape[1] != 4:
-                statuses["current_input"] = f"error: invalid shape {obj.shape}, expected Nx4"
-                raise HTTPException(status_code=400, detail=f"Invalid shape {obj.shape}. Expected Nx4 format")
-            #write_chromsizes_tsv(chrom_len_bp=obj.shape[0])
-        except HTTPException:
-            raise
-        except Exception:
-            statuses["current_input"] = "Failed to load npy file"
-            return {"status": "error", "message": "Failed to load npy file"}
-    else:
-        statuses["current_input"] = "error: invalid file type, logo track must be .npy an Nx4 tensor"
-        return {"status": "error", "message": "Invalid file type. Only .npy of shape Nx4 allowed"}
-
-    statuses["current_input"] = "generating logo track files"
-    subprocess.run(["python", "reconstruction_tensor.py"])
-    
-    for file in Path(REUPLOAD_DIR).glob("*.bigWig"):
-        file.rename(file.with_suffix(".bigWig.done"))
-    
-    return {
-        "status": "success",
-        "message": "Logo track files generated and finalized (.bigWig.done)."
-    }
-
-
-@app.get("/mcool-files")
-async def list_mcool_files():
-    os.makedirs(REUPLOAD_DIR, exist_ok=True)
-
-    raw = os.listdir(REUPLOAD_DIR)
-    in_progress = []
-    done = []
-
-    for name in raw:
-        if name.endswith(".mcool.done"):
-            done.append(name[:-len(".mcool.done")])
-            continue
-        if name.endswith(".mcool"):
-            in_progress.append(name[:-len(".mcool")])
-
-    in_progress = sorted(set(in_progress))
-    done = sorted(set(done))
-    all_names = sorted(set(in_progress) | set(done))
-
-    return {
-        "all": all_names,
-        "in_progress": in_progress,
-        "done": done,
-    }
-
-# File upload endpoint - TODO upload 'any?' file - check if .pt or .npy and check safe, return that info to frontend
-@app.post("/upload")  # TODO allow correct shapes (...) and exclude all others
-async def upload_file(file: UploadFile = File(...)):
-    statuses["current_input"] = "received new file"
-    filename = file.filename
-    if not filename:
-        statuses["current_input"] = "error: no filename"
-        return {"status": "error", "message": "No filename provided"}
-
-    _, ext = os.path.splitext(filename)
-    ext = ext.lower()
-
-    if ext in (".pt",):
-        file_path = os.path.join(UPLOAD_DIR, "current_input" + ext)
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        statuses["current_input"] = "saved pt file"
-        # TODO check shape
-
-    elif ext in (".npy",):
-        file_path = os.path.join(UPLOAD_DIR, "current_input" + ext)
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        statuses["current_input"] = "saved npy file"
-        try:
-            obj = np.load(file_path, allow_pickle=True)
-            statuses["current_input"] = (
-                "saved npy tensor with shape "
-                + str(obj.shape)
-                + " next Step: convert to mcool file"
-            )
-        except Exception:
-            statuses["current_input"] = "Failed to load npy file"
-            return {"status": "error", "message": "Failed to load npy file"}
-
-    else:
-        statuses["current_input"] = "error: invalid file type"
-        return {"status": "error", "message": "Invalid file type. Only .pt and .npy allowed"}
-
-    return {"filename": file.filename, "status": "saved"}
-
-
-# Trigger conversion endpoint
-@app.post("/convert_pt")
-async def convert_file_pt():
-    file_path = os.path.join(UPLOAD_DIR, "current_input.pt")
-
-    if not os.path.exists(file_path):
-        return {"status": "error", "message": "No file to convert"}
-
-    statuses["current_input"] = "converting"
-    subprocess.run(["python", "PTtoMCOOLconverter.py", file_path])
-    
-    statuses["current_input"] = "converted"
-
-    return {"status": "success", "message": "converted pt to mcool file"}
-
-
-# Trigger npy conversion endpoint
-@app.post("/convert_npy")
-async def convert_file_npy():
-    file_path = os.path.join(UPLOAD_DIR, "current_input.npy")
-
-    if not os.path.exists(file_path):
-        return {"status": "error", "message": "No file to convert"}
-
-    statuses["current_input"] = "converting"
-    subprocess.run(["python", "DimensionReducer.py", file_path])
-    subprocess.run(
-    ["python", "NPYtoMCOOLconverter.py", file_path],
-    check=True,
-    capture_output=False
-)
-    statuses["current_input"] = "converted"
-
-    return {"status": "success", "message": "converted npy to mcool file"}
-
-
-# Trigger conversion endpoint
-@app.post("/reupload")
-async def reupload_file():
-    output_dir = Path("McoolOutput")
-
-    if not output_dir.exists():
-        return {"status": "error", "message": "Output folder not found"}
-
-    mcool_files = list(output_dir.glob("*.mcool"))
-    if not mcool_files:
-        return {"status": "error", "message": "No .mcool files found"}
-
-    statuses["current_input"] = "uploading"
-
-    renamed = 0
-    for mcool in mcool_files:
-        out_base = mcool.name[:-len(".mcool")]
-        mcool_done = output_dir / f"{out_base}.mcool.done"
-        mcool.replace(mcool_done)
-        renamed += 1
-
-    statuses["current_input"] = "reupload should be imminent"
-
-    return {
-        "status": "success",
-        "message": f"{renamed} file(s) renamed (.mcool -> .mcool.done)"
-    }
-
-
-# Check format npy
-def check_npy_format(path):
-    try:
-        obj = np.load(path, allow_pickle=True)
-        print("Loaded object type:", type(obj))
-        print("Tensor shape is:", obj.shape)
-        return obj.shape
-    except Exception as e:
-        print("Failed to load file:", e)
-        return None

@@ -11,6 +11,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
  * AACCGGTTTG
  */
 
+//TODO declutter
+
 function parseFastaMeta(fastaContent) {
   if (typeof fastaContent !== "string" || !fastaContent.trim()) {
     return {
@@ -48,24 +50,23 @@ function parseFastaMeta(fastaContent) {
   };
 }
 
-/**
- * not shifted absolute
- * The final displayed absolute X/Y positions are built later from:
- *   absoluteCoordinateBase + cellX
- *   absoluteCoordinateBase + cellY
- */
-function formatAbsoluteCoordinateBaseAndRelativeIndex(meta, relativeIndex) {
+function formatAbsoluteCoordinateBaseAndRelativeIndex(
+  current_chromosome_object,
+  relativeIndex
+) {
   if (!Number.isFinite(relativeIndex)) return null;
 
-  if (!Number.isFinite(meta?.startNumber)) {
+  const absoluteCoordinateBase = Number(
+    current_chromosome_object?.absolutePosition
+  );
+
+  if (!Number.isFinite(absoluteCoordinateBase)) {
     return {
       absoluteCoordinateBase: null,
       relativeIndex,
       text: `absolute coordinate base: (?) relative index: (${relativeIndex})`,
     };
   }
-
-  const absoluteCoordinateBase = meta.startNumber;
 
   return {
     absoluteCoordinateBase,
@@ -74,10 +75,14 @@ function formatAbsoluteCoordinateBaseAndRelativeIndex(meta, relativeIndex) {
   };
 }
 
-function formatAbsoluteRelativeRange(meta, i, j) {
+function formatAbsoluteRelativeRange(current_chromosome_object, i, j) {
   if (!Number.isFinite(i) || !Number.isFinite(j)) return null;
 
-  if (!Number.isFinite(meta?.startNumber)) {
+  const absoluteCoordinateBase = Number(
+    current_chromosome_object?.absolutePosition
+  );
+
+  if (!Number.isFinite(absoluteCoordinateBase)) {
     return {
       absoluteStart: null,
       absoluteEnd: null,
@@ -87,8 +92,8 @@ function formatAbsoluteRelativeRange(meta, i, j) {
     };
   }
 
-  const absoluteStart = meta.startNumber + i;
-  const absoluteEnd = meta.startNumber + j;
+  const absoluteStart = absoluteCoordinateBase + i;
+  const absoluteEnd = absoluteCoordinateBase + j;
 
   return {
     absoluteStart,
@@ -96,6 +101,20 @@ function formatAbsoluteRelativeRange(meta, i, j) {
     relativeStart: i,
     relativeEnd: j,
     text: `absolute position: (${absoluteStart}-${absoluteEnd}) relative position: (${i}-${j})`,
+  };
+}
+
+function fastaMetaToChromosomeObject(meta) {
+  if (!meta || typeof meta !== "object") return null;
+
+  if (!meta.chromosomeName) return null;
+  if (!meta.sequence) return null;
+  if (!Number.isFinite(meta.startNumber)) return null;
+
+  return {
+    name: meta.chromosomeName,
+    sequence: meta.sequence,
+    absolutePosition: meta.startNumber,
   };
 }
 
@@ -251,7 +270,9 @@ export function useHoverCellWatchdog({
       onMmz = (evt) => {
         const v = valueOf(evt);
         const hasCoords = Number.isFinite(Number(evt?.dataX));
-        const merged = hasCoords ? evt : { ...(lastCursorEvt.current || {}), ...(evt || {}) };
+        const merged = hasCoords
+          ? evt
+          : { ...(lastCursorEvt.current || {}), ...(evt || {}) };
         emit(merged, v, { preserveValue: false });
       };
       api.on("mouseMoveZoom", onMmz);
@@ -285,8 +306,13 @@ export function useCoordsWatchdog({
     const api = hgApi || hgApiRef.current;
     if (!api) return;
 
-    if (typeof api.getLocation !== "function" || typeof api.getViewConfig !== "function") {
-      addLog?.("coords watchdog: getLocation()/getViewConfig() not available on API");
+    if (
+      typeof api.getLocation !== "function" ||
+      typeof api.getViewConfig !== "function"
+    ) {
+      addLog?.(
+        "coords watchdog: getLocation()/getViewConfig() not available on API"
+      );
       return;
     }
 
@@ -342,9 +368,14 @@ export function useCoordsWatchdog({
 
 /**
  * Owns HiGlass instance/api refs + readiness + watchdog wiring.
- * Also owns FASTA file state/loading/parsing.
+ * Owns FASTA file state/loading only.
+ * Chromosome source of truth is current_chromosome_object from outside.
  */
-export function useHiGlassController({ addLog }) {
+export function useHiGlassControllerWithFasta({
+  addLog,
+  current_chromosome_object,
+  set_chromosome_object,
+}) {
   const hgApiRef = useRef(null);
   const hgInstanceRef = useRef(null);
   const [hgApi, setHgApi] = useState(null);
@@ -359,26 +390,54 @@ export function useHiGlassController({ addLog }) {
 
   const { lastRangeRef, updateLastRangeFromApi } = useHiGlassRange();
 
-  const fastaMeta = useMemo(() => parseFastaMeta(fastaContent), [fastaContent]);
-
   const handleFastaUpload = useCallback(async () => {
     if (!fastaFile) {
       addLog?.("FASTA upload blocked: no file selected");
-      return;
+      return false;
+    }
+
+    if (typeof set_chromosome_object !== "function") {
+      addLog?.("FASTA upload blocked: set_chromosome_object unavailable");
+      return false;
     }
 
     try {
       setFastaBusy(true);
+
       const text = await fastaFile.text();
       setFastaContent(text);
       addLog?.(`FASTA file loaded: "${fastaFile.name}" (${text.length} chars)`);
+
+      const meta = parseFastaMeta(text);
+      const chromosomeObject = fastaMetaToChromosomeObject(meta);
+
+      if (!chromosomeObject) {
+        addLog?.(
+          'FASTA upload discarded: expected header format ">NAME:START-END" and non-empty sequence'
+        );
+        return false;
+      }
+
+      const ok = set_chromosome_object(chromosomeObject);
+
+      if (!ok) {
+        addLog?.("FASTA upload: set_chromosome_object rejected parsed object");
+        return false;
+      }
+
+      addLog?.(
+        `FASTA chromosome object applied: name="${chromosomeObject.name}" sequenceLength=${chromosomeObject.sequence.length} absolutePosition=${chromosomeObject.absolutePosition}`
+      );
+
+      return true;
     } catch (e) {
       setFastaContent("");
       addLog?.(`FASTA read error: ${String(e)}`);
+      return false;
     } finally {
       setFastaBusy(false);
     }
-  }, [fastaFile, addLog]);
+  }, [fastaFile, addLog, set_chromosome_object]);
 
   const ensureApiReady = useCallback(
     (attempts = 40, intervalMs = 100) => {
@@ -400,14 +459,16 @@ export function useHiGlassController({ addLog }) {
         }
 
         if (n >= attempts) {
-          addLog?.("HiGlass API not ready (timeout); watchdog features may be unavailable");
+          addLog?.(
+            "HiGlass API not ready (timeout); watchdog features may be unavailable"
+          );
           window.clearInterval(t);
         }
       }, intervalMs);
 
       return () => window.clearInterval(t);
     },
-    [addLog, updateLastRangeFromApi],
+    [addLog, updateLastRangeFromApi]
   );
 
   const onHiGlassRef = useCallback(
@@ -434,7 +495,7 @@ export function useHiGlassController({ addLog }) {
       addLog?.("HiGlass mounted; waiting for API…");
       ensureApiReady();
     },
-    [addLog, ensureApiReady, updateLastRangeFromApi],
+    [addLog, ensureApiReady, updateLastRangeFromApi]
   );
 
   useCoordsWatchdog({
@@ -461,7 +522,7 @@ export function useHiGlassController({ addLog }) {
         setClickedCell({ ...hoverCell });
       }
     },
-    [hoverCell],
+    [hoverCell]
   );
 
   const clearApi = useCallback(() => {
@@ -476,12 +537,19 @@ export function useHiGlassController({ addLog }) {
     addLog?.("HiGlass refs cleared");
   }, [addLog, lastRangeRef]);
 
-  const chromosomeName = fastaMeta.chromosomeName;
+  const chromosomeName =
+    current_chromosome_object?.name && String(current_chromosome_object.name).trim()
+      ? String(current_chromosome_object.name)
+      : null;
 
   const positionDisplay = useMemo(() => {
     if (!pos) return null;
 
-    const formatted = formatAbsoluteRelativeRange(fastaMeta, pos.i, pos.j);
+    const formatted = formatAbsoluteRelativeRange(
+      current_chromosome_object,
+      pos.i,
+      pos.j
+    );
     if (!formatted) return null;
 
     return {
@@ -490,14 +558,14 @@ export function useHiGlassController({ addLog }) {
       chromosomeName,
       text: `${formatted.text}\nchromosome name: (${chromosomeName ?? "unknown"})`,
     };
-  }, [pos, fastaMeta, chromosomeName]);
+  }, [pos, current_chromosome_object, chromosomeName]);
 
   const hoverDisplay = useMemo(() => {
     if (!hoverCell) return null;
 
     const relativeIndex = Number.isFinite(hoverCell.cellX) ? hoverCell.cellX : null;
     const formatted = formatAbsoluteCoordinateBaseAndRelativeIndex(
-      fastaMeta,
+      current_chromosome_object,
       relativeIndex
     );
     if (!formatted) return null;
@@ -508,14 +576,16 @@ export function useHiGlassController({ addLog }) {
       chromosomeName,
       text: `${formatted.text}\nchromosome name: (${chromosomeName ?? "unknown"})`,
     };
-  }, [hoverCell, fastaMeta, chromosomeName]);
+  }, [hoverCell, current_chromosome_object, chromosomeName]);
 
   const clickedDisplay = useMemo(() => {
     if (!clickedCell) return null;
 
-    const relativeIndex = Number.isFinite(clickedCell.cellX) ? clickedCell.cellX : null;
+    const relativeIndex = Number.isFinite(clickedCell.cellX)
+      ? clickedCell.cellX
+      : null;
     const formatted = formatAbsoluteCoordinateBaseAndRelativeIndex(
-      fastaMeta,
+      current_chromosome_object,
       relativeIndex
     );
     if (!formatted) return null;
@@ -526,7 +596,7 @@ export function useHiGlassController({ addLog }) {
       chromosomeName,
       text: `${formatted.text}\nchromosome name: (${chromosomeName ?? "unknown"})`,
     };
-  }, [clickedCell, fastaMeta, chromosomeName]);
+  }, [clickedCell, current_chromosome_object, chromosomeName]);
 
   return {
     hgApiRef,
@@ -535,11 +605,11 @@ export function useHiGlassController({ addLog }) {
     setHgApi,
     onHiGlassRef,
     clearApi,
+
     pos,
     hoverCell,
     clickedCell,
     onViewerMouseDown,
-
     lastRangeRef,
 
     fastaFile,
@@ -548,9 +618,9 @@ export function useHiGlassController({ addLog }) {
     fastaContent,
     setFastaContent,
     handleFastaUpload,
-    fastaMeta,
-    chromosomeName,
 
+    current_chromosome_object,
+    chromosomeName,
     positionDisplay,
     hoverDisplay,
     clickedDisplay,
