@@ -1,5 +1,4 @@
-import { API_BACKEND, HIGLASS_SERVER } from "../config";
-import { baseUrl } from "../utils/appUtils";
+import { API_BACKEND } from "../config";
 
 async function readErrorBody(r) {
   return await r.text().catch(() => "");

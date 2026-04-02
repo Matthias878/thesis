@@ -1,120 +1,130 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useUploads } from "../api/useUploads";
-import { sidebar, divider, sectionTitle, select, selectOption, backendRowInStatus, backendDotSmall, backendTextEllipsis, hoverBlock, hoverLine, button, sectionGrid8, sectionGrid10, wrapRow, consoleBox, consoleWrap, sidebarScrollHiddenCss, uploadButton,
+import { useEffect, useRef, useState, useCallback } from "react";
+import { useUploads } from "../api/fileUploadHandler";
+import { sidebar, divider, sectionTitle, select, selectOption, backendRowInStatus, backendDotSmall, backendTextEllipsis, hoverBlock, hoverLine, button, sectionGrid8, sectionGrid10, wrapRow, consoleBox, consoleWrap, sidebarScrollHiddenCss, uploadButton, filePickerRow, hiddenFileInput, fileNameBox, uploadActionGrid, toggleButtonStyle,
 } from "../styles/appStyles";
 
-const asArray = (v) => (Array.isArray(v) ? v : []);
+const arr = (v) => (Array.isArray(v) ? v : []);
 const text = (v) =>
   v instanceof Error ? `Error: ${v.message}` : v == null ? "—" : String(v);
 const pair = (a, b) => `${a ?? "—"},${b ?? "—"}`;
-const currentLabel = (label, value, prefix = false) =>
-  value ? `${prefix ? "Current " : "current "}${label}: ${value}` : "empty";
+const current = (label, value, upper = false) =>
+  value ? `${upper ? "Current " : "current "}${label}: ${value}` : "empty";
 
-const formatRelativePosition = (d) => (d ? pair(d.cellX, d.cellY) : "—");
-const formatAbsolutePosition = (d) =>
-  !d
-    ? "—"
-    : d.absoluteStart != null || d.absoluteEnd != null
-      ? pair(d.absoluteStart, d.absoluteEnd)
-      : d.absoluteCoordinateBase != null
-        ? pair(d.absoluteCoordinateBase + (d.cellX ?? 0), d.absoluteCoordinateBase + (d.cellY ?? 0))
-        : "—";
-
-const formatDisplayLine = (d) =>
+const relPos = (d) => (d ? pair(d.cellX, d.cellY) : "—");
+const absPos = (d, chr) =>
   d
-    ? `value=${text(d.value)} · relative=${formatRelativePosition(d)} · absolute=${formatAbsolutePosition(d)}`
+    ? pair(
+        (d.cellX ?? 0) + (Number(chr?.absolutePosition ?? 0) || 0),
+        (d.cellY ?? 0) + (Number(chr?.absolutePosition ?? 0) || 0)
+      )
+    : "—";
+const displayLine = (d, chr) =>
+  d
+    ? `value=${text(d.value)} · relative=${relPos(d)} · absolute=${absPos(d, chr)}`
     : "—";
 
+const sameCollection = (a, b) =>
+  !!a &&
+  ["main_heatmapUid", "matrixUid", "logo_trackUid", "chromosomeName"].every(
+    (k) => String(a[k] ?? "") === String(b[k] ?? "")
+  );
+
 function FilePicker({ file, setFile, busy, accept }) {
-  const inputRef = useRef(null);
+  const ref = useRef(null);
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: 8, alignItems: "center", width: "100%" }}>
+    <div style={filePickerRow}>
       <input
-        ref={inputRef}
+        ref={ref}
         type="file"
         accept={accept}
         disabled={busy}
-        style={{ display: "none" }}
+        style={hiddenFileInput}
         onChange={({ target }) => setFile(target.files?.[0] ?? null)}
       />
-      <button type="button" disabled={busy} onClick={() => inputRef.current?.click()} style={uploadButton(busy)}>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => ref.current?.click()}
+        style={uploadButton(busy)}
+      >
         Browse
       </button>
-      <div
-        style={{
-          minWidth: 0,
-          padding: "8px 10px",
-          border: "1px solid rgba(255,255,255,0.12)",
-          borderRadius: 8,
-          color: file ? "white" : "rgba(255,255,255,0.65)",
-          background: "rgba(255,255,255,0.04)",
-          whiteSpace: "nowrap",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-        }}
-        title={file?.name || "No file selected"}
-      >
+      <div style={fileNameBox(Boolean(file))} title={file?.name || "No file selected"}>
         {file?.name || "No file selected"}
       </div>
     </div>
   );
 }
 
-function FileUpload({ file, setFile, onUpload, busy, accept, buttonText = "Upload", items, value = "", onSelect, emptyText = "empty", selectTitle = "", getValue = (x) => x, getLabel = (x) => String(x ?? ""),
+function UploadSection({ title, grid, file, setFile, onUpload, busy, accept, buttonText = "Upload", items, value = "", onSelect, emptyText = "empty", selectTitle = "", getValue = (x) => x, getLabel = (x) => String(x ?? ""), extra,
 }) {
-  const hasDropdown = items && onSelect;
+  const showSelect = items && onSelect;
 
   return (
-    <div style={sectionGrid10}>
-      <FilePicker file={file} setFile={setFile} busy={busy} accept={accept} />
+    <div>
+      <div style={grid}>
+        <div style={sectionTitle}>{title}</div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: hasDropdown ? "1fr 1fr" : "1fr",
-          gap: 8,
-          width: "100%",
-        }}
-      >
-        <button
-          type="button"
-          onClick={onUpload}
-          disabled={!file || busy}
-          style={uploadButton(!file || busy)}
-          title={!file ? "Please select a file first" : ""}
-        >
-          {busy ? "Uploading..." : buttonText}
-        </button>
+        <FilePicker file={file} setFile={setFile} busy={busy} accept={accept} />
 
-        {hasDropdown && (
-          <select
-            value={value}
-            onChange={(e) => onSelect?.(e.target.value)}
-            style={{ ...select, width: "100%" }}
-            title={selectTitle}
+        <div style={uploadActionGrid(showSelect)}>
+          <button
+            type="button"
+            onClick={onUpload}
+            disabled={!file || busy}
+            title={!file ? "Please select a file first" : ""}
+            style={uploadButton(!file || busy)}
           >
-            <option value="" style={selectOption}>
-              {emptyText}
-            </option>
-            {items.map((item, index) => {
-              const optionValue = String(getValue(item) ?? "");
-              const label = getLabel(item) || "(empty)";
-              return (
-                <option key={optionValue || `item-${index}`} value={optionValue} style={selectOption}>
-                  {label}
-                </option>
-              );
-            })}
-          </select>
-        )}
+            {busy ? "Uploading..." : buttonText}
+          </button>
+
+          {showSelect && (
+            <select
+              value={value}
+              onChange={(e) => onSelect(e.target.value)}
+              style={select}
+              title={selectTitle}
+            >
+              <option value="" style={selectOption}>
+                {emptyText}
+              </option>
+              {items.map((item, i) => {
+                const v = String(getValue(item) ?? "");
+                return (
+                  <option key={v || `item-${i}`} value={v} style={selectOption}>
+                    {getLabel(item) || "(empty)"}
+                  </option>
+                );
+              })}
+            </select>
+          )}
+        </div>
+
+        {extra}
       </div>
     </div>
   );
 }
 
-function ConsoleBoxInline({ lines }) {
+function ToggleButton({ onClick, active, onText, offText, disabled = false, title = "",
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      style={toggleButtonStyle(disabled)}
+    >
+      {active ? onText : offText}
+    </button>
+  );
+}
+
+function LogConsole({ lines }) {
   const ref = useRef(null);
+
   useEffect(() => {
     if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
   }, [lines]);
@@ -126,130 +136,221 @@ function ConsoleBoxInline({ lines }) {
   );
 }
 
-export default function Sidebar(props) {
-  const { addLog, setMainHeatmapUid, setLogoTrackUid, setMatrixUid, setChromosomeObject, currentMainHeatmapUid, currentLogoTrackUid, matrixUid, currentChromosomeObject, matrixEnabled, lineModeEnabled, canActivateLines, toggleMatrixMode, toggleLineMode, logs, backendDotColor, backendText, hoverDisplay, clickedDisplay, fastaFile, setFastaFile, fastaBusy, handleFastaUpload, heatmapUids, matrixUids, logoUids, fastaData,
-  } = props;
+export default function Sidebar({ addLog, logs, reloadViewer, backendStatus, viewer,
+}) {
+  const { setMainHeatmapUid, setLogoTrackUid, setMatrixUid, mainHeatmapUid, matrixUid, logoTrackUid, currentChromosome, lineMode, matrixEnabled, logoEnabled, sequenceEnabled, canActivateLines, heatmapUids, matrixUids, logoUids, chromosomes, savedCollections, selectSavedCollection, toggleLineMode, toggleMatrixMode, toggleLogoMode, toggleSequenceMode, hoveredPosition,
+  } = viewer;
+
+  const { dotColor: backendDotColor, text: backendText } = backendStatus;
 
   const [busy, setBusy] = useState(false);
   const [zipFile, setZipFile] = useState(null);
-  const [file, setFile] = useState(null);
-  const [logoTrackFile, setLogoTrackFile] = useState(null);
-  const [npyMatrixFile, setNpyMatrixFile] = useState(null);
+  const [heatmapFile, setHeatmapFile] = useState(null);
+  const [logoFile, setLogoFile] = useState(null);
+  const [matrixFile, setMatrixFile] = useState(null);
+  const [fastaFile, setFastaFile] = useState(null);
+  const [lastClickedPosition, setLastClickedPosition] = useState(null);
 
-  const { handleUpload, handleLogoTrackUpload, handleNpyMatrixUpload, handleZIPUpload } = useUploads({
-    addLog,
-    setMainHeatmapUid,
-    setLogoTrackUid,
-    setMatrixUid,
-    setChromosomeObject,
+  const sidebarRef = useRef(null);
+  const hoveredPositionRef = useRef(hoveredPosition);
+
+  const { handleUpload, handleZIPUpload, handleFastaUpload } = useUploads({ addLog, setMainHeatmapUid, setLogoTrackUid, setMatrixUid, setChromosomeObject: viewer.setChromosomeObject, addSavedCollection: viewer.addSavedCollection, selectSavedCollection,
   });
 
-  const allBusy = busy || fastaBusy;
+  useEffect(() => {
+    hoveredPositionRef.current = hoveredPosition;
+  }, [hoveredPosition]);
 
-  const selectUid = async (value, setter, kind) => {
-    if (!value) return;
-    const ok = await setter?.(value);
-    addLog?.(`${kind} dropdown select: uid="${value}" ok=${Boolean(ok)}`);
+  useEffect(() => {
+    const onMouseDown = (e) => {
+      if (e.button !== 0 || sidebarRef.current?.contains(e.target)) return;
+      const p = hoveredPositionRef.current;
+      setLastClickedPosition(p ? { ...p } : null);
+    };
+
+    document.addEventListener("mousedown", onMouseDown);
+    return () => document.removeEventListener("mousedown", onMouseDown);
+  }, []);
+
+  const currentSelection = {
+    main_heatmapUid: mainHeatmapUid ?? "",
+    matrixUid: matrixUid ?? "",
+    logo_trackUid: logoTrackUid ?? "",
+    chromosomeName: currentChromosome?.name ?? "",
   };
 
-  const sections = useMemo(
-    () => [
-      {
-        title: "zip file upload",
-        grid: sectionGrid10,
-        file: zipFile,
-        setFile: setZipFile,
-        onUpload: () => handleZIPUpload({ zipFile, setBusy }),
-        accept: ".zip",
-        buttonText: "Upload ZIP",
-      },
-      {
-        title: "main heatmap upload Nx3xNx4.npy file",
-        grid: sectionGrid10,
-        file,
-        setFile,
-        onUpload: () => handleUpload({ file, setBusy }),
-        accept: ".npy",
-        items: asArray(heatmapUids),
-        value: String(currentMainHeatmapUid ?? ""),
-        onSelect: (value) => selectUid(value, setMainHeatmapUid, "heatmap"),
-        emptyText: currentLabel("heatmap", currentMainHeatmapUid),
-        selectTitle: currentLabel("heatmap UID", currentMainHeatmapUid, true),
-      },
-      {
-        title: "logo track upload Nx4.npy file",
-        grid: sectionGrid8,
-        file: logoTrackFile,
-        setFile: setLogoTrackFile,
-        onUpload: () => handleLogoTrackUpload({ logoTrackFile, setBusy }),
-        accept: ".npy",
-        items: asArray(logoUids),
-        value: String(currentLogoTrackUid ?? ""),
-        onSelect: (value) => selectUid(value, setLogoTrackUid, "logo"),
-        emptyText: currentLabel("logo track", currentLogoTrackUid),
-        selectTitle: currentLabel("logo track", currentLogoTrackUid, true),
-      },
-      {
-        title: "matrix upload NxK.npy file",
-        grid: sectionGrid8,
-        file: npyMatrixFile,
-        setFile: setNpyMatrixFile,
-        onUpload: () => handleNpyMatrixUpload({ npyMatrixFile, setBusy }),
-        accept: ".npy",
-        items: asArray(matrixUids),
-        value: String(matrixUid ?? ""),
-        onSelect: (value) => selectUid(value, setMatrixUid, "matrix"),
-        emptyText: currentLabel("matrix", matrixUid),
-        selectTitle: currentLabel("matrix UID", matrixUid, true),
-        extra: (
-          <div style={wrapRow}>
-            <button type="button" onClick={toggleMatrixMode} style={button} title={matrixUid ? `matrixUid=${matrixUid}` : ""}>
-              {matrixEnabled ? "matrix tracks: on" : "matrix tracks: off"}
-            </button>
-            <button
-              type="button"
-              onClick={toggleLineMode}
-              disabled={!canActivateLines}
-              style={{ ...button, opacity: canActivateLines ? 1 : 0.4, cursor: canActivateLines ? "pointer" : "not-allowed" }}
-            >
-              {lineModeEnabled ? "line mode: on" : "line mode: off"}
-            </button>
-          </div>
-        ),
-      },
-      {
-        title: 'sequence upload {">name:startpos-endpos\\nSEQ.fasta file"}',
-        grid: sectionGrid8,
-        file: fastaFile,
-        setFile: setFastaFile,
-        onUpload: handleFastaUpload,
-        accept: ".fasta,.fa,.txt",
-        items: asArray(fastaData),
-        value: String(currentChromosomeObject?.name ?? ""),
-        onSelect: (value) => selectUid(value, setChromosomeObject, "chromosome"),
-        emptyText: currentLabel("chromosome", currentChromosomeObject?.name),
-        selectTitle: currentLabel("chromosome", currentChromosomeObject?.name, true),
-      },
-    ],
-    [ zipFile, file, logoTrackFile, npyMatrixFile, fastaFile, heatmapUids, logoUids, matrixUids, fastaData, currentMainHeatmapUid, currentLogoTrackUid, matrixUid, currentChromosomeObject, handleZIPUpload, handleUpload, handleLogoTrackUpload, handleNpyMatrixUpload, handleFastaUpload, toggleMatrixMode, toggleLineMode, matrixEnabled, lineModeEnabled, canActivateLines,
-    ]
+  const presetEntries = Object.entries(savedCollections ?? {});
+  const selectedPresetKey =
+    presetEntries.find(([, c]) => sameCollection(c, currentSelection))?.[0] ?? "";
+  const selectedPresetLabel = selectedPresetKey
+    ? `current preset: ${selectedPresetKey}`
+    : "no currently selected preset";
+
+  const selectValue = useCallback(
+    async (value, setter, kind, label = "uid") => {
+      if (!value) return;
+      const ok = await setter?.(value);
+      addLog?.(`${kind} dropdown select: ${label}="${value}" ok=${Boolean(ok)}`);
+    },
+    [addLog]
   );
+
+  const runToggle = useCallback(
+    (toggle, successMsg, { enabled = true, blockedMsg, reload = false } = {}) => {
+      if (!enabled) {
+        if (blockedMsg) addLog(blockedMsg);
+        return;
+      }
+      toggle?.();
+      if (successMsg) addLog(successMsg);
+      if (reload) reloadViewer();
+    },
+    [addLog, reloadViewer]
+  );
+
+  const sections = [
+    {
+      title: "zip file upload",
+      grid: sectionGrid10,
+      file: zipFile,
+      setFile: setZipFile,
+      onUpload: () => handleZIPUpload({ zipFile, setBusy }),
+      accept: ".zip",
+      buttonText: "Upload ZIP",
+      items: presetEntries.map(([key, collection]) => ({ key, collection })),
+      value: selectedPresetKey,
+      onSelect: (key) => selectValue(key, selectSavedCollection, "preset", "key"),
+      emptyText: selectedPresetLabel,
+      selectTitle: selectedPresetLabel,
+      getValue: (x) => x.key,
+      getLabel: ({ key, collection: c = {} }) =>
+        [
+          key,
+          c.main_heatmapUid && `heatmap=${c.main_heatmapUid}`,
+          c.matrixUid && `matrix=${c.matrixUid}`,
+          c.logo_trackUid && `logo=${c.logo_trackUid}`,
+          c.chromosomeName && `chr=${c.chromosomeName}`,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+    },
+    {
+      title: "main heatmap upload Nx3xNx4.npy file",
+      grid: sectionGrid10,
+      file: heatmapFile,
+      setFile: setHeatmapFile,
+      onUpload: () => handleUpload({ type: "heatmap", file: heatmapFile, setBusy }),
+      accept: ".npy",
+      items: arr(heatmapUids),
+      value: String(mainHeatmapUid ?? ""),
+      onSelect: (v) => selectValue(v, setMainHeatmapUid, "heatmap"),
+      emptyText: current("heatmap", mainHeatmapUid),
+      selectTitle: current("heatmap UID", mainHeatmapUid, true),
+    },
+    {
+      title: "logo track upload Nx4.npy file",
+      grid: sectionGrid8,
+      file: logoFile,
+      setFile: setLogoFile,
+      onUpload: () => handleUpload({ type: "logo", file: logoFile, setBusy }),
+      accept: ".npy",
+      items: arr(logoUids),
+      value: String(logoTrackUid ?? ""),
+      onSelect: (v) => selectValue(v, setLogoTrackUid, "logo"),
+      emptyText: current("logo track", logoTrackUid),
+      selectTitle: current("logo track", logoTrackUid, true),
+      extra: (
+        <div style={wrapRow}>
+          <ToggleButton
+            onClick={() =>
+              runToggle(toggleLogoMode, "logo button pressed -> toggleLogoMode()")
+            }
+            active={logoEnabled}
+            onText="logo tracks: on"
+            offText="logo tracks: off"
+            title={logoTrackUid ? `logoTrackUid=${logoTrackUid}` : ""}
+          />
+        </div>
+      ),
+    },
+    {
+      title: "matrix upload NxK.npy file",
+      grid: sectionGrid8,
+      file: matrixFile,
+      setFile: setMatrixFile,
+      onUpload: () => handleUpload({ type: "matrix", file: matrixFile, setBusy }),
+      accept: ".npy",
+      items: arr(matrixUids),
+      value: String(matrixUid ?? ""),
+      onSelect: (v) => selectValue(v, setMatrixUid, "matrix"),
+      emptyText: current("matrix", matrixUid),
+      selectTitle: current("matrix UID", matrixUid, true),
+      extra: (
+        <div style={wrapRow}>
+          <ToggleButton
+            onClick={() =>
+              runToggle(toggleMatrixMode, "matrix button pressed -> toggleMatrixMode()")
+            }
+            active={matrixEnabled}
+            onText="matrix tracks: on"
+            offText="matrix tracks: off"
+            title={matrixUid ? `matrixUid=${matrixUid}` : ""}
+          />
+          <ToggleButton
+            onClick={() =>
+              runToggle(toggleLineMode, "line-mode button pressed -> toggleLineMode()", {
+                enabled: canActivateLines,
+                blockedMsg: "line-mode button blocked: canActivateLines=false",
+                reload: true,
+              })
+            }
+            active={lineMode}
+            onText="line mode: on"
+            offText="line mode: off"
+            disabled={!canActivateLines}
+          />
+        </div>
+      ),
+    },
+    {
+      title: 'sequence upload {">name:startpos-endpos\\nSEQ.fasta file"}',
+      grid: sectionGrid8,
+      file: fastaFile,
+      setFile: setFastaFile,
+      onUpload: () => handleFastaUpload({ fastaFile, setBusy }),
+      accept: ".fasta,.fa,.txt",
+      items: arr(chromosomes).map((x) => x.name),
+      value: String(currentChromosome?.name ?? ""),
+      onSelect: (v) => selectValue(v, viewer.setChromosomeObject, "chromosome"),
+      emptyText: current("chromosome", currentChromosome?.name),
+      selectTitle: current("chromosome", currentChromosome?.name, true),
+      extra: (
+        <div style={wrapRow}>
+          <ToggleButton
+            onClick={() =>
+              runToggle(
+                toggleSequenceMode,
+                "sequence button pressed -> toggleSequenceTrackMode()",
+                { reload: true }
+              )
+            }
+            active={sequenceEnabled}
+            onText="sequence track: on"
+            offText="sequence track: off"
+          />
+        </div>
+      ),
+    },
+  ];
 
   return (
     <>
       <style>{sidebarScrollHiddenCss}</style>
 
-      <aside
-        className="sidebar-scroll-hidden"
-        style={{ ...sidebar, minHeight: 0, overflowY: "auto", overflowX: "hidden" }}
-      >
-        {sections.map(({ title, grid, extra, ...uploadProps }, i) => (
-          <div key={title}>
-            <div style={grid}>
-              <div style={sectionTitle}>{title}</div>
-              <FileUpload {...uploadProps} busy={allBusy} />
-              {extra}
-            </div>
+      <aside ref={sidebarRef} className="sidebar-scroll-hidden" style={sidebar}>
+        {sections.map((section, i) => (
+          <div key={section.title}>
+            <UploadSection {...section} busy={busy} />
             {i < sections.length - 1 && <div style={divider} />}
           </div>
         ))}
@@ -257,16 +358,31 @@ export default function Sidebar(props) {
         <div style={divider} />
 
         <div style={hoverBlock}>
-          <div>Hover cell: {formatDisplayLine(hoverDisplay)}</div>
-          <div style={hoverLine}>Last click: {formatDisplayLine(clickedDisplay)}</div>
-          <div style={hoverLine}>chromosome name: {currentChromosomeObject?.name || "unknown"}</div>
-          <div style={hoverLine}>absolute position: {currentChromosomeObject?.absolutePosition ?? "—"}</div>
+          <div>Hover cell: {displayLine(hoveredPosition, currentChromosome)}</div>
+          <div style={hoverLine}>
+            Last clicked: {displayLine(lastClickedPosition, currentChromosome)}
+          </div>
+          <div style={hoverLine}>
+            chromosome name: {currentChromosome?.name || "unknown"}
+          </div>
+          <div style={hoverLine}>
+            absolute position: {currentChromosome?.absolutePosition ?? 0}
+          </div>
+          <div style={hoverLine}>{selectedPresetLabel}</div>
         </div>
 
         <div style={divider} />
 
         <div style={consoleWrap}>
-          <ConsoleBoxInline lines={logs} />
+          <LogConsole lines={logs} />
+        </div>
+
+        <div style={divider} />
+
+        <div style={sectionGrid8}>
+          <button type="button" onClick={reloadViewer} style={button}>
+            Debug: manually reload viewer
+          </button>
         </div>
 
         <div style={divider} />
