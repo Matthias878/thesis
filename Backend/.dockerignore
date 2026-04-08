@@ -3,9 +3,9 @@ __pycache__/
 *.pyo
 *.pyd
 
-uploads/
+UserInputFiles/
 temp/
-McoolOutput/
+HiGlassFiles/
 _pycache_/
 
 .git/

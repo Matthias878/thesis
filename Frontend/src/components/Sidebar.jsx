@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { useUploads } from "../api/fileUploadHandler";
-import { sidebar, divider, sectionTitle, select, selectOption, backendRowInStatus, backendDotSmall, backendTextEllipsis, hoverBlock, hoverLine, button, sectionGrid8, sectionGrid10, wrapRow, consoleBox, consoleWrap, sidebarScrollHiddenCss, uploadButton, filePickerRow, hiddenFileInput, fileNameBox, uploadActionGrid, toggleButtonStyle,
-} from "../styles/appStyles";
+import {sidebar, divider, sectionTitle, select, selectOption, backendRowInStatus, backendDotSmall, backendTextEllipsis, hoverBlock, hoverLine, button, sectionGrid8, sectionGrid10, wrapRow, consoleBox, consoleWrap, sidebarScrollHiddenCss, uploadButton, filePickerRow, hiddenFileInput, fileNameBox, uploadActionGrid, toggleButtonStyle} from "../styles/appStyles";
 
 const arr = (v) => (Array.isArray(v) ? v : []);
 const text = (v) =>
@@ -29,62 +28,105 @@ const sameCollection = (a, b) =>
     (k) => String(a[k] ?? "") === String(b[k] ?? "")
   );
 
-function FilePicker({ file, setFile, busy, accept }) {
+function setUploadTestState(patch) {
+  if (typeof window === "undefined") return;
+
+  const prev = window.__uploadTestState ?? {
+    uploadInProgress: false,
+    lastStartedFile: null,
+    lastCompletedFile: null,
+    lastFailedFile: null,
+    lastError: null,
+    updatedAt: null,
+  };
+
+  window.__uploadTestState = {
+    ...prev,
+    ...patch,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function FilePicker({ file, setFile, disabled, accept, testIdBase }) {
   const ref = useRef(null);
 
   return (
-    <div style={filePickerRow}>
+    <div style={filePickerRow} data-testid={`${testIdBase}-file-picker`}>
       <input
         ref={ref}
+        data-testid={`${testIdBase}-file-input`}
         type="file"
         accept={accept}
-        disabled={busy}
+        disabled={disabled}
         style={hiddenFileInput}
         onChange={({ target }) => setFile(target.files?.[0] ?? null)}
       />
       <button
+        data-testid={`${testIdBase}-browse-button`}
         type="button"
-        disabled={busy}
+        disabled={disabled}
         onClick={() => ref.current?.click()}
-        style={uploadButton(busy)}
+        style={uploadButton(disabled)}
       >
         Browse
       </button>
-      <div style={fileNameBox(Boolean(file))} title={file?.name || "No file selected"}>
+      <div
+        data-testid={`${testIdBase}-file-name`}
+        style={fileNameBox(Boolean(file))}
+        title={file?.name || "No file selected"}
+      >
         {file?.name || "No file selected"}
       </div>
     </div>
   );
 }
 
-function UploadSection({ title, grid, file, setFile, onUpload, busy, accept, buttonText = "Upload", items, value = "", onSelect, emptyText = "empty", selectTitle = "", getValue = (x) => x, getLabel = (x) => String(x ?? ""), extra,
-}) {
+function UploadSection({title, grid, file, setFile, onUpload, disabled, accept, markEventA, buttonText = "Upload", items, value = "", onSelect, emptyText = "empty", selectTitle = "", getValue = (x) => x, getLabel = (x) => String(x ?? ""), extra, testIdBase, allowClickWithoutFile = false}) {
   const showSelect = items && onSelect;
+  const uploadDisabled = disabled || (!allowClickWithoutFile && !file);
 
   return (
-    <div>
+    <div data-testid={`${testIdBase}-section`}>
       <div style={grid}>
-        <div style={sectionTitle}>{title}</div>
+        <div style={sectionTitle} data-testid={`${testIdBase}-title`}>
+          {title}
+        </div>
 
-        <FilePicker file={file} setFile={setFile} busy={busy} accept={accept} />
+        <FilePicker
+          file={file}
+          setFile={setFile}
+          disabled={disabled}
+          accept={accept}
+          testIdBase={testIdBase}
+        />
 
-        <div style={uploadActionGrid(showSelect)}>
+        <div
+          style={uploadActionGrid(showSelect)}
+          data-testid={`${testIdBase}-actions`}
+        >
           <button
+            data-testid={`${testIdBase}-upload-button`}
             type="button"
-            onClick={onUpload}
-            disabled={!file || busy}
+            onClick={async () => {
+              if (!file) return;
+              markEventA?.(file?.name ?? "no-file");
+              await onUpload();
+            }}
+            disabled={uploadDisabled}
             title={!file ? "Please select a file first" : ""}
-            style={uploadButton(!file || busy)}
+            style={uploadButton(uploadDisabled)}
           >
-            {busy ? "Uploading..." : buttonText}
+            {disabled ? "Uploading..." : buttonText}
           </button>
 
           {showSelect && (
             <select
+              data-testid={`${testIdBase}-select`}
               value={value}
               onChange={(e) => onSelect(e.target.value)}
               style={select}
               title={selectTitle}
+              disabled={disabled}
             >
               <option value="" style={selectOption}>
                 {emptyText}
@@ -107,10 +149,18 @@ function UploadSection({ title, grid, file, setFile, onUpload, busy, accept, but
   );
 }
 
-function ToggleButton({ onClick, active, onText, offText, disabled = false, title = "",
+function ToggleButton({
+  onClick,
+  active,
+  onText,
+  offText,
+  disabled = false,
+  title = "",
+  testId,
 }) {
   return (
     <button
+      data-testid={testId}
       type="button"
       onClick={onClick}
       disabled={disabled}
@@ -130,20 +180,18 @@ function LogConsole({ lines }) {
   }, [lines]);
 
   return (
-    <pre ref={ref} style={consoleBox}>
+    <pre ref={ref} style={consoleBox} data-testid="sidebar-log-console">
       {lines.join("\n")}
     </pre>
   );
 }
 
-export default function Sidebar({ addLog, logs, reloadViewer, backendStatus, viewer,
-}) {
-  const { setMainHeatmapUid, setLogoTrackUid, setMatrixUid, mainHeatmapUid, matrixUid, logoTrackUid, currentChromosome, lineMode, matrixEnabled, logoEnabled, sequenceEnabled, canActivateLines, heatmapUids, matrixUids, logoUids, chromosomes, savedCollections, selectSavedCollection, toggleLineMode, toggleMatrixMode, toggleLogoMode, toggleSequenceMode, hoveredPosition,
-  } = viewer;
+export default function Sidebar({addLog, logs, reloadViewer, backendStatus, viewer, markEventA}) 
+{
+  const {setMainHeatmapUid, setLogoTrackUid, setMatrixUid, mainHeatmapUid, matrixUid, logoTrackUid, currentChromosome, lineMode, matrixEnabled, logoEnabled, sequenceEnabled, canActivateLines, heatmapUids, matrixUids, logoUids, chromosomes, savedCollections, selectSavedCollection, setChromosomeObject, addSavedCollection, toggleLineMode, toggleMatrixMode, toggleLogoMode, toggleSequenceMode, hoveredPosition, blockUI, setBlockUI} = viewer;
 
   const { dotColor: backendDotColor, text: backendText } = backendStatus;
 
-  const [busy, setBusy] = useState(false);
   const [zipFile, setZipFile] = useState(null);
   const [heatmapFile, setHeatmapFile] = useState(null);
   const [logoFile, setLogoFile] = useState(null);
@@ -154,8 +202,7 @@ export default function Sidebar({ addLog, logs, reloadViewer, backendStatus, vie
   const sidebarRef = useRef(null);
   const hoveredPositionRef = useRef(hoveredPosition);
 
-  const { handleUpload, handleZIPUpload, handleFastaUpload } = useUploads({ addLog, setMainHeatmapUid, setLogoTrackUid, setMatrixUid, setChromosomeObject: viewer.setChromosomeObject, addSavedCollection: viewer.addSavedCollection, selectSavedCollection,
-  });
+  const { handleUpload, handleZIPUpload, handleFastaUpload } = useUploads({addLog, setMainHeatmapUid, setLogoTrackUid, setMatrixUid, setChromosomeObject, addSavedCollection, selectSavedCollection, setBlockUI});
 
   useEffect(() => {
     hoveredPositionRef.current = hoveredPosition;
@@ -170,6 +217,10 @@ export default function Sidebar({ addLog, logs, reloadViewer, backendStatus, vie
 
     document.addEventListener("mousedown", onMouseDown);
     return () => document.removeEventListener("mousedown", onMouseDown);
+  }, []);
+
+  useEffect(() => {
+    setUploadTestState({ uploadInProgress: false });
   }, []);
 
   const currentSelection = {
@@ -188,15 +239,19 @@ export default function Sidebar({ addLog, logs, reloadViewer, backendStatus, vie
 
   const selectValue = useCallback(
     async (value, setter, kind, label = "uid") => {
-      if (!value) return;
+      if (!value || blockUI) return;
       const ok = await setter?.(value);
       addLog?.(`${kind} dropdown select: ${label}="${value}" ok=${Boolean(ok)}`);
     },
-    [addLog]
+    [addLog, blockUI]
   );
 
   const runToggle = useCallback(
     (toggle, successMsg, { enabled = true, blockedMsg, reload = false } = {}) => {
+      if (blockUI) {
+        addLog?.("action blocked: blockUI=true");
+        return;
+      }
       if (!enabled) {
         if (blockedMsg) addLog(blockedMsg);
         return;
@@ -205,18 +260,48 @@ export default function Sidebar({ addLog, logs, reloadViewer, backendStatus, vie
       if (successMsg) addLog(successMsg);
       if (reload) reloadViewer();
     },
-    [addLog, reloadViewer]
+    [addLog, blockUI, reloadViewer]
   );
+
+  const uploadZipWithTestState = useCallback(async () => {
+    if (!zipFile) return;
+
+    try {
+      setUploadTestState({
+        uploadInProgress: true,
+        lastStartedFile: zipFile.name,
+        lastError: null,
+      });
+
+      await handleZIPUpload({ zipFile });
+
+      setUploadTestState({
+        uploadInProgress: false,
+        lastCompletedFile: zipFile.name,
+        lastFailedFile: null,
+        lastError: null,
+      });
+    } catch (error) {
+      setUploadTestState({
+        uploadInProgress: false,
+        lastFailedFile: zipFile.name,
+        lastError: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+  }, [handleZIPUpload, zipFile]);
 
   const sections = [
     {
+      testIdBase: "upload-zip",
       title: "zip file upload",
       grid: sectionGrid10,
       file: zipFile,
       setFile: setZipFile,
-      onUpload: () => handleZIPUpload({ zipFile, setBusy }),
+      onUpload: uploadZipWithTestState,
       accept: ".zip",
       buttonText: "Upload ZIP",
+      allowClickWithoutFile: true,
       items: presetEntries.map(([key, collection]) => ({ key, collection })),
       value: selectedPresetKey,
       onSelect: (key) => selectValue(key, selectSavedCollection, "preset", "key"),
@@ -235,11 +320,12 @@ export default function Sidebar({ addLog, logs, reloadViewer, backendStatus, vie
           .join(" · "),
     },
     {
+      testIdBase: "upload-heatmap",
       title: "main heatmap upload Nx3xNx4.npy file",
       grid: sectionGrid10,
       file: heatmapFile,
       setFile: setHeatmapFile,
-      onUpload: () => handleUpload({ type: "heatmap", file: heatmapFile, setBusy }),
+      onUpload: () => handleUpload({ type: "heatmap", file: heatmapFile }),
       accept: ".npy",
       items: arr(heatmapUids),
       value: String(mainHeatmapUid ?? ""),
@@ -248,11 +334,12 @@ export default function Sidebar({ addLog, logs, reloadViewer, backendStatus, vie
       selectTitle: current("heatmap UID", mainHeatmapUid, true),
     },
     {
+      testIdBase: "upload-logo",
       title: "logo track upload Nx4.npy file",
       grid: sectionGrid8,
       file: logoFile,
       setFile: setLogoFile,
-      onUpload: () => handleUpload({ type: "logo", file: logoFile, setBusy }),
+      onUpload: () => handleUpload({ type: "logo", file: logoFile }),
       accept: ".npy",
       items: arr(logoUids),
       value: String(logoTrackUid ?? ""),
@@ -262,6 +349,7 @@ export default function Sidebar({ addLog, logs, reloadViewer, backendStatus, vie
       extra: (
         <div style={wrapRow}>
           <ToggleButton
+            testId="toggle-logo-mode"
             onClick={() =>
               runToggle(toggleLogoMode, "logo button pressed -> toggleLogoMode()")
             }
@@ -269,16 +357,18 @@ export default function Sidebar({ addLog, logs, reloadViewer, backendStatus, vie
             onText="logo tracks: on"
             offText="logo tracks: off"
             title={logoTrackUid ? `logoTrackUid=${logoTrackUid}` : ""}
+            disabled={blockUI}
           />
         </div>
       ),
     },
     {
+      testIdBase: "upload-matrix",
       title: "matrix upload NxK.npy file",
       grid: sectionGrid8,
       file: matrixFile,
       setFile: setMatrixFile,
-      onUpload: () => handleUpload({ type: "matrix", file: matrixFile, setBusy }),
+      onUpload: () => handleUpload({ type: "matrix", file: matrixFile }),
       accept: ".npy",
       items: arr(matrixUids),
       value: String(matrixUid ?? ""),
@@ -288,6 +378,7 @@ export default function Sidebar({ addLog, logs, reloadViewer, backendStatus, vie
       extra: (
         <div style={wrapRow}>
           <ToggleButton
+            testId="toggle-matrix-mode"
             onClick={() =>
               runToggle(toggleMatrixMode, "matrix button pressed -> toggleMatrixMode()")
             }
@@ -295,8 +386,10 @@ export default function Sidebar({ addLog, logs, reloadViewer, backendStatus, vie
             onText="matrix tracks: on"
             offText="matrix tracks: off"
             title={matrixUid ? `matrixUid=${matrixUid}` : ""}
+            disabled={blockUI}
           />
           <ToggleButton
+            testId="toggle-line-mode"
             onClick={() =>
               runToggle(toggleLineMode, "line-mode button pressed -> toggleLineMode()", {
                 enabled: canActivateLines,
@@ -307,26 +400,28 @@ export default function Sidebar({ addLog, logs, reloadViewer, backendStatus, vie
             active={lineMode}
             onText="line mode: on"
             offText="line mode: off"
-            disabled={!canActivateLines}
+            disabled={blockUI || !canActivateLines}
           />
         </div>
       ),
     },
     {
+      testIdBase: "upload-sequence",
       title: 'sequence upload {">name:startpos-endpos\\nSEQ.fasta file"}',
       grid: sectionGrid8,
       file: fastaFile,
       setFile: setFastaFile,
-      onUpload: () => handleFastaUpload({ fastaFile, setBusy }),
+      onUpload: () => handleFastaUpload({ fastaFile }),
       accept: ".fasta,.fa,.txt",
       items: arr(chromosomes).map((x) => x.name),
       value: String(currentChromosome?.name ?? ""),
-      onSelect: (v) => selectValue(v, viewer.setChromosomeObject, "chromosome"),
+      onSelect: (v) => selectValue(v, setChromosomeObject, "chromosome"),
       emptyText: current("chromosome", currentChromosome?.name),
       selectTitle: current("chromosome", currentChromosome?.name, true),
       extra: (
         <div style={wrapRow}>
           <ToggleButton
+            testId="toggle-sequence-mode"
             onClick={() =>
               runToggle(
                 toggleSequenceMode,
@@ -337,6 +432,7 @@ export default function Sidebar({ addLog, logs, reloadViewer, backendStatus, vie
             active={sequenceEnabled}
             onText="sequence track: on"
             offText="sequence track: off"
+            disabled={blockUI}
           />
         </div>
       ),
@@ -347,49 +443,65 @@ export default function Sidebar({ addLog, logs, reloadViewer, backendStatus, vie
     <>
       <style>{sidebarScrollHiddenCss}</style>
 
-      <aside ref={sidebarRef} className="sidebar-scroll-hidden" style={sidebar}>
+      <aside
+        ref={sidebarRef}
+        className="sidebar-scroll-hidden"
+        style={sidebar}
+        data-testid="sidebar"
+      >
         {sections.map((section, i) => (
-          <div key={section.title}>
-            <UploadSection {...section} busy={busy} />
+          <div key={section.title} data-testid={`${section.testIdBase}-container`}>
+            <UploadSection {...section} disabled={blockUI} markEventA={markEventA} />
             {i < sections.length - 1 && <div style={divider} />}
           </div>
         ))}
 
         <div style={divider} />
 
-        <div style={hoverBlock}>
-          <div>Hover cell: {displayLine(hoveredPosition, currentChromosome)}</div>
-          <div style={hoverLine}>
+        <div style={hoverBlock} data-testid="hover-info">
+          <div data-testid="hover-cell">
+            Hover cell: {displayLine(hoveredPosition, currentChromosome)}
+          </div>
+          <div style={hoverLine} data-testid="last-clicked">
             Last clicked: {displayLine(lastClickedPosition, currentChromosome)}
           </div>
-          <div style={hoverLine}>
+          <div style={hoverLine} data-testid="chromosome-name">
             chromosome name: {currentChromosome?.name || "unknown"}
           </div>
-          <div style={hoverLine}>
+          <div style={hoverLine} data-testid="absolute-position">
             absolute position: {currentChromosome?.absolutePosition ?? 0}
           </div>
-          <div style={hoverLine}>{selectedPresetLabel}</div>
+          <div style={hoverLine} data-testid="selected-preset-label">
+            {selectedPresetLabel}
+          </div>
         </div>
 
         <div style={divider} />
 
-        <div style={consoleWrap}>
+        <div style={consoleWrap} data-testid="console-wrap">
           <LogConsole lines={logs} />
         </div>
 
         <div style={divider} />
 
         <div style={sectionGrid8}>
-          <button type="button" onClick={reloadViewer} style={button}>
+          <button
+            data-testid="reload-viewer-button"
+            type="button"
+            onClick={reloadViewer}
+            style={button}
+          >
             Debug: manually reload viewer
           </button>
         </div>
 
         <div style={divider} />
 
-        <div style={backendRowInStatus}>
-          <span style={backendDotSmall(backendDotColor)} />
-          <div style={backendTextEllipsis}>Backend availability: {backendText}</div>
+        <div style={backendRowInStatus} data-testid="backend-status">
+          <span style={backendDotSmall(backendDotColor)} data-testid="backend-status-dot" />
+          <div style={backendTextEllipsis} data-testid="backend-status-text">
+            Backend availability: {backendText}
+          </div>
         </div>
       </aside>
     </>

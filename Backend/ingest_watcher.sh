@@ -3,10 +3,17 @@ set -euo pipefail
 
 echo "SHELL=$0  BASH_VERSION=${BASH_VERSION:-no}"
 
-DATA_DIR=/data
-COORD_SYSTEM="testchromome"
-CHROMSIZES_TSV="$DATA_DIR/$COORD_SYSTEM.chrom.sizes"
-CHROMSIZES_UID="chromsizes__${COORD_SYSTEM}"
+DATA_DIR="${DATA_DIR:-/data}"
+STARTUP_DIR="${STARTUP_DIR:-$DATA_DIR/StartupFiles}"
+COORD_SYSTEM="${COORD_SYSTEM:-synthetic_maxchr}"
+CHROMSIZES_BASENAME="${CHROMSIZES_BASENAME:-synthetic_maxchr_sizes.tsv}"
+CHROMSIZES_TSV="${CHROMSIZES_TSV:-$DATA_DIR/$CHROMSIZES_BASENAME}"
+CHROMSIZES_UID="${CHROMSIZES_UID:-chromsizes__${COORD_SYSTEM}}"
+
+STARTUP_PICK="${STARTUP_PICK:-finishedfile.mcool}"
+STARTUP_DONE_NAME="${STARTUP_DONE_NAME:-${STARTUP_PICK}.done}"
+
+MODE="${1:-}"
 
 wait_for_higlass() {
   echo "Waiting for higlass..."
@@ -76,11 +83,11 @@ qs.delete()
 
 validate_chromsizes_file() {
   echo "Validating chromsizes file: $CHROMSIZES_TSV"
-  python - <<'PY'
+  python - "$CHROMSIZES_TSV" <<'PY'
 import sys
 from pathlib import Path
 
-path = Path("/data/testchromome.chrom.sizes")
+path = Path(sys.argv[1])
 
 if not path.exists():
     print(f"ERROR: chromsizes file missing: {path}")
@@ -250,42 +257,143 @@ ingest_file() {
   fi
 }
 
+pick_one_done_file() {
+  shopt -s nullglob
+  local f
+
+  # First pass: prefer non-bigWig files.
+  for f in "$DATA_DIR"/*.done; do
+    [[ "$(basename "$f")" == .* ]] && continue
+    case "$f" in
+      *.bigWig.done|*.bigwig.done)
+        ;;
+      *)
+        printf '%s\n' "$f"
+        shopt -u nullglob
+        return 0
+        ;;
+    esac
+  done
+
+  # Second pass: fall back to bigWig files only if no normal files are pending.
+  for f in "$DATA_DIR"/*.done; do
+    [[ "$(basename "$f")" == .* ]] && continue
+    case "$f" in
+      *.bigWig.done|*.bigwig.done)
+        printf '%s\n' "$f"
+        shopt -u nullglob
+        return 0
+        ;;
+    esac
+  done
+
+  shopt -u nullglob
+  return 1
+}
+
+process_one_done_file_once() {
+  local done_path data_path uploaded_path
+
+  if ! done_path="$(pick_one_done_file)"; then
+    return 0
+  fi
+
+  echo "Selected one pending trigger: $done_path"
+
+  data_path="${done_path%.done}"
+
+  if [[ -e "$data_path" ]]; then
+    echo "ERROR: cannot rename $done_path -> $data_path (target exists). Quarantining trigger."
+    quarantine_file "$done_path" "conflict"
+    return 0
+  fi
+
+  mv -f "$done_path" "$data_path"
+  echo "Renamed trigger/data: $done_path -> $data_path"
+
+  if ingest_file "$data_path"; then
+    uploaded_path="${done_path}.uploaded"
+    echo "Marking upload complete: $data_path -> $uploaded_path"
+    mv -f "$data_path" "$uploaded_path"
+  fi
+}
+
 watch_loop() {
-  echo "Watching $DATA_DIR for *.done (rename first, then ingest, then mark uploaded) ..."
+  echo "Watching $DATA_DIR for *.done ..."
   while true; do
-    shopt -s nullglob
-    for done_path in "$DATA_DIR"/*.done; do
-      [[ "$(basename "$done_path")" == .* ]] && continue
-
-      local data_path="${done_path%.done}"
-
-      if [[ -e "$data_path" ]]; then
-        echo "ERROR: cannot rename $done_path -> $data_path (target exists). Quarantining trigger."
-        quarantine_file "$done_path" "conflict"
-        continue
-      fi
-
-      mv -f "$done_path" "$data_path"
-      echo "Renamed trigger/data: $done_path -> $data_path"
-
-      if ingest_file "$data_path"; then
-        local uploaded_path="${done_path}.uploaded"
-        echo "Marking upload complete: $data_path -> $uploaded_path"
-        mv -f "$data_path" "$uploaded_path"
-      fi
-    done
-    shopt -u nullglob
+    process_one_done_file_once
     sleep 1
   done
 }
 
-main() {
+cleanup_data_dir() {
+  echo "Cleaning data directory: $DATA_DIR"
+  mkdir -p "$DATA_DIR"
+
+  find "$DATA_DIR" -mindepth 1 -maxdepth 1 \
+    ! -name "$(basename "$STARTUP_DIR")" \
+    ! -name "log" \
+    -exec rm -rf {} +
+}
+
+seed_startup_files() {
+  echo "Seeding startup files from $STARTUP_DIR"
+
+  mkdir -p "$DATA_DIR"
+
+  local startup_pick_src="$STARTUP_DIR/$STARTUP_PICK"
+  local chromsizes_src="$STARTUP_DIR/$CHROMSIZES_BASENAME"
+
+  [[ -f "$startup_pick_src" ]] || {
+    echo "ERROR: Missing startup file: $startup_pick_src"
+    exit 1
+  }
+
+  [[ -f "$chromsizes_src" ]] || {
+    echo "ERROR: Missing chromsizes startup file: $chromsizes_src"
+    exit 1
+  }
+
+  cp -f "$startup_pick_src" "$DATA_DIR/$STARTUP_DONE_NAME"
+  cp -f "$chromsizes_src" "$CHROMSIZES_TSV"
+
+  echo "Seeded:"
+  echo "  $startup_pick_src -> $DATA_DIR/$STARTUP_DONE_NAME"
+  echo "  $chromsizes_src -> $CHROMSIZES_TSV"
+}
+
+bootstrap() {
+  cleanup_data_dir
+  seed_startup_files
   wait_for_chromsizes
   validate_chromsizes_file
   wait_for_higlass
   migrate_locked
   ingest_chromsizes_once
+
+  echo "Processing pending files one-by-one until queue is empty..."
+  while pick_one_done_file >/dev/null; do
+    process_one_done_file_once
+  done
+}
+
+watch_only() {
+  wait_for_chromsizes
+  validate_chromsizes_file
+  wait_for_higlass
+  ingest_chromsizes_once
   watch_loop
 }
 
-main "$@"
+case "$MODE" in
+  --bootstrap)
+    bootstrap
+    ;;
+  --watch)
+    watch_only
+    ;;
+  *)
+    echo "Usage: $0 --bootstrap | --watch"
+    exit 1
+    ;;
+esac

@@ -1,19 +1,63 @@
-notes/
+# =========================
+# General / Project-wide
+# =========================
 
+notes/
 unused/
+
+# =========================
+# Backend
+# =========================
 
 Backend/temp/
 Backend/_pycache_/
 Backend/unused/
+Backend/*.pyc
 
 # Ignore everything inside
-Backend/uploads/*
+Backend/UserInputFiles/*
 
 # Ignore everything inside build
-Backend/McoolOutput/*
+Backend/HiGlassFiles/*
 
 # But don't ignore this subfolder
-!Backend/McoolOutput/A/
+!Backend/HiGlassFiles/StartupFiles/
 
 # And don't ignore its contents
-!Backend/McoolOutput/A/**
+!Backend/HiGlassFiles/StartupFiles/**
+
+
+# =========================
+# Frontend 
+# =========================
+
+Frontend/startFrontend.py
+Frontend/tests/results/*
+Frontend/tests/test_files/*
+Frontend/tests/node_modules/
+
+# Logs
+Frontend/logs
+Frontend/*.log
+Frontend/npm-debug.log*
+Frontend/yarn-debug.log*
+Frontend/yarn-error.log*
+Frontend/pnpm-debug.log*
+Frontend/lerna-debug.log*
+
+# Dependencies / build
+Frontend/node_modules
+Frontend/dist
+Frontend/dist-ssr
+Frontend/*.local
+
+# Editor / system files
+Frontend/.vscode/*
+!Frontend/.vscode/extensions.json
+Frontend/.idea
+Frontend/.DS_Store
+Frontend/*.suo
+Frontend/*.ntvs*
+Frontend/*.njsproj
+Frontend/*.sln
+Frontend/*.sw?

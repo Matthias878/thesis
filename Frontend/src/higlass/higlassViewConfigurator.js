@@ -9,9 +9,7 @@ const MAX_MATRIX_ROWS = 12;
 const INITIAL_HEATMAP_UID = "finishedfile";
 const VIEW_UID = "view-1";
 
-const COLLECTION_NAMES = [
-  "strawberry", "banana", "blueberry", "apple", "pear", "peach", "mango", "kiwi", "orange", "plum", "cherry", "raspberry", "blackberry", "melon", "grape", "pineapple",
-];
+const COLLECTION_NAMES = ["strawberry", "banana", "blueberry", "apple", "pear", "peach", "mango", "kiwi", "orange", "plum", "cherry", "raspberry", "blackberry", "melon", "grape", "pineapple"];
 
 const clone = (v) =>
   typeof structuredClone === "function" ? structuredClone(v) : JSON.parse(JSON.stringify(v));
@@ -301,6 +299,7 @@ export function useRenderViewConfig({
   const [matrixEnabled, setMatrixEnabled] = useState(false);
   const [logoEnabled, setLogoEnabled] = useState(false);
   const [sequenceEnabled, setSequenceEnabled] = useState(false);
+  const [blockUI, setBlockUI] = useState(false);
 
   const [matrixRowCount, setMatrixRowCount] = useState(0);
   const [canActivateLines, setCanActivateLines] = useState(false);
@@ -387,8 +386,10 @@ export function useRenderViewConfig({
       didMountRef.current = true;
       return;
     }
-    reloadViewer?.();
-  }, [viewConfig, reloadViewer]);
+    if (!blockUI) {
+      reloadViewer?.();
+    }
+  }, [viewConfig, reloadViewer, blockUI]);
 
   const onHiGlassRef = useCallback(
     (instance) => {
@@ -813,5 +814,5 @@ export function useRenderViewConfig({
     [ savedCollectionsRef, addLog, setMainHeatmapUid, setMatrixUid, setLogoTrackUid, setChromosomeObject, clearMatrixSelection, clearLogoSelection, clearChromosomeSelection,]
   );
 
-  return { viewConfig, mainHeatmapUid, matrixUid, logoTrackUid, currentChromosome, lineMode, matrixEnabled, logoEnabled, sequenceEnabled, canActivateLines, heatmapUids, matrixUids, logoUids, chromosomes, savedCollections, setMainHeatmapUid, setMatrixUid, setLogoTrackUid, setChromosomeObject, addSavedCollection, selectSavedCollection, toggleLineMode, toggleMatrixMode, toggleLogoMode, toggleSequenceMode, onHiGlassRef, hoveredPosition,};
+  return { viewConfig, mainHeatmapUid, matrixUid, logoTrackUid, currentChromosome, lineMode, matrixEnabled, logoEnabled, sequenceEnabled, canActivateLines, heatmapUids, matrixUids, logoUids, chromosomes, savedCollections, setMainHeatmapUid, setMatrixUid, setLogoTrackUid, setChromosomeObject, addSavedCollection, selectSavedCollection, toggleLineMode, toggleMatrixMode, toggleLogoMode, toggleSequenceMode, onHiGlassRef, hoveredPosition, blockUI, setBlockUI};
 }

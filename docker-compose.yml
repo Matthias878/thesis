@@ -1,78 +1,112 @@
 version: "3.9"
 
 services:
-
-  cleanup:
-    image: alpine
-    container_name: cleanup_mcooloutput
-    volumes:
-      - ./Backend/McoolOutput:/data
-    command:
-      - sh
-      - -c
-      - |
-        set -e
-
-        # Delete everything in /data except the directory A
-        find /data -mindepth 1 -maxdepth 1 ! -name A -exec rm -rf {} +
-
-        SRC="/data/A"
-        DST="/data"
-        PICK="finishedfile.mcool"
-        NEW_NAME="finishedfile.mcool.done"
-        SIZES="testchromome.chrom.sizes"
-
-        mkdir -p "$$DST"
-
-        # Copy finishedfile.mcool -> /data/finishedfile.mcool.done
-        f="$$SRC/$$PICK"
-        [ -f "$$f" ] || { echo "Missing file: $$f"; exit 1; }
-        cp -f "$$f" "$$DST/$$NEW_NAME"
-
-        # Copy testchromome.chrom.sizes -> /data/testchromome.chrom.sizes
-        s="$$SRC/$$SIZES"
-        [ -f "$$s" ] || { echo "Missing file: $$s"; exit 1; }
-        cp -f "$$s" "$$DST/$$SIZES"
-    restart: "no"
-
   higlass:
     image: higlass/higlass-docker
     container_name: higlass
     ports:
       - "8989:80"
     volumes:
-      - ./Backend/McoolOutput:/data
+      - ./Backend/HiGlassFiles:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:80/ >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+  bootstrap_ingest:
+    image: higlass/higlass-docker
+    container_name: bootstrap_ingest
     depends_on:
-      - cleanup
+      higlass:
+        condition: service_healthy
+    volumes:
+      - ./Backend/HiGlassFiles:/data
+      - ./Backend/ingest_watcher.sh:/ingest_watcher.sh:ro
+    environment:
+      DATA_DIR: /data
+      STARTUP_DIR: /data/StartupFiles
+      COORD_SYSTEM: synthetic_maxchr
+      CHROMSIZES_BASENAME: synthetic_maxchr_sizes.tsv
+      STARTUP_PICK: finishedfile.mcool
+    entrypoint: ["/bin/bash", "/ingest_watcher.sh", "--bootstrap"]
+    restart: "no"
 
   backend:
     build: ./Backend
+    #cpus: 0.7 #use at testing
     container_name: backend
     ports:
       - "8000:8000"
     volumes:
       - ./Backend:/app
-      - ./Backend/McoolOutput:/app/McoolOutput
+      - ./Backend/HiGlassFiles:/app/HiGlassFiles
     depends_on:
-      - cleanup
-      - higlass
+      higlass:
+        condition: service_healthy
+      bootstrap_ingest:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/status')"
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
 
   ingest_watcher:
     image: higlass/higlass-docker
+    #cpus: 0.7 #use at testing
+    container_name: ingest_watcher
     depends_on:
-      - cleanup
-      - higlass
+      backend:
+        condition: service_healthy
     volumes:
-      - ./Backend/McoolOutput:/data
+      - ./Backend/HiGlassFiles:/data
       - ./Backend/ingest_watcher.sh:/ingest_watcher.sh:ro
+    environment:
+      DATA_DIR: /data
+      STARTUP_DIR: /data/StartupFiles
+      COORD_SYSTEM: synthetic_maxchr
+      CHROMSIZES_BASENAME: synthetic_maxchr_sizes.tsv
+      STARTUP_PICK: finishedfile.mcool
+    entrypoint: ["/bin/bash", "/ingest_watcher.sh", "--watch"]
     restart: unless-stopped
-    entrypoint: ["/bin/bash", "/ingest_watcher.sh"]
+
 
   frontend:
     build:
       context: ./Frontend
+      target: prod
+    container_name: frontend
     ports:
       - "8080:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     command: ["sh", "-c", "nginx -g 'daemon off;'"]
+
+  frontend_test:
+    profiles: ["test"]
+    build:
+      context: ./Frontend
+      target: test
+    container_name: frontend_test
+    depends_on:
+      frontend:
+        condition: service_started
+    environment:
+      BASE_URL: http://frontend/
+      FOLDER_PATH: /tests/test_files
+      RESULTS_DIR: /tests/results
+      UPLOAD_URL_SUBSTRING: ""
+    volumes:
+      - ./Frontend/tests/test_files:/tests/test_files
+      - ./Frontend/tests/results:/tests/results
+    command: ["sh", "-c", "sleep infinity"]

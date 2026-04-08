@@ -4,7 +4,7 @@ async function readErrorBody(r) {
   return await r.text().catch(() => "");
 }
 
-export async function uploadFileWithNewUid(file, addLog) {
+export async function uploadFileWithNewUid(file) {
   const form = new FormData();
   form.append("file", file);
 
@@ -13,7 +13,7 @@ export async function uploadFileWithNewUid(file, addLog) {
   return await r.json().catch(() => ({}));
 }
 
-export async function uploadNxknpyFile(file, addLog) {
+export async function uploadNxknpyFile(file) {
   const form = new FormData();
   form.append("file", file);
 
@@ -22,12 +22,7 @@ export async function uploadNxknpyFile(file, addLog) {
   return await r.json().catch(() => ({}));
 }
 
-export async function call_Matrix_bigwig(addLog) {
-  fetch(`${API_BACKEND}/upload_nxk_npy_bigwig`, { method: "GET" });
-  return;
-}
-
-export async function uploadlogoTrackFile(file, addLog) {
+export async function uploadlogoTrackFile(file) {
   const form = new FormData();
   form.append("file", file);
 
@@ -37,7 +32,7 @@ export async function uploadlogoTrackFile(file, addLog) {
 }
 
 
-export async function uploadZipFile(file, addLog) {
+export async function uploadZipFile(file) {
   const form = new FormData();
   form.append("file", file);
 
