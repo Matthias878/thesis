@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import "higlass/dist/hglib.css";
-import "higlass-multivec";
 import { HiGlassComponent } from "higlass";
 import useBackendStatus from "./api/StatusSystem";
 import { useRenderViewConfig } from "./higlass/higlassViewConfigurator";
@@ -39,9 +38,6 @@ export default function App() {
     setLogs((prev) => [...prev, `[${ts()}] ${line}`].slice(-400));
   }, []);
 
-  /**
-   * Performance capture state lives in refs so it is cheap and always current.
-   */
   const perfEnabledRef = useRef(false);
   const eventCounterRef = useRef(0);
   const lastARef = useRef(null);
@@ -92,7 +88,6 @@ export default function App() {
     addLog("performance capture downloaded (Shift+P)");
   }, [addLog]);
 
-
   const markEventA = useCallback(
     (label = "A") => {
       if (!perfEnabledRef.current) return;
@@ -121,10 +116,13 @@ export default function App() {
     if (perfEnabledRef.current && lastARef.current) {
       const bTimeMs = performance.now();
       const deltaSeconds = (bTimeMs - lastARef.current.timeMs) / 1000;
+      const bAt = nowIso(); // <-- added
 
       captureRef.current.events.push({
         uploadedFileNumber: lastARef.current.uploadedFileNumber,
         label: lastARef.current.label,
+        uploadAt: lastARef.current.at,
+        reloadAt: bAt,
         deltaSeconds,
       });
     }
@@ -153,7 +151,6 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [togglePerfCapture, downloadPerfCapture]);
 
-  // Initialize Playwright-visible upload state once.
   useEffect(() => {
     if (!window.__uploadTestState) {
       window.__uploadTestState = {

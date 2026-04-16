@@ -6,23 +6,19 @@ Make sure the Docker engine is running.
 docker compose up --build
 ```
 
-## Sites
+## Links
 
-- **Frontend**  
+- **Open the frontend Web Tool**  
   http://localhost:8080  
 
-- **Python Backend**  
-  http://localhost:8000  
+- **See all tilesets in the backend**  
+  http://localhost:8080/higlass/api/v1/tilesets/?limit=100
 
-- **HiGlass Backend**  
-  http://localhost:8989  
-  List available tilesets:  
-  http://localhost:8989/api/v1/tilesets/?limit=100
 
 ## Performance Testing (on windows):
 ```bash
 docker compose --profile test up --build
 ```
 ```bash
-powershell -ExecutionPolicy Bypass -File .\testtool.ps1 
+powershell -ExecutionPolicy Bypass -File .\testtool.ps1
 ```

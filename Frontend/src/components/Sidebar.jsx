@@ -1,6 +1,30 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useUploads } from "../api/fileUploadHandler";
-import {sidebar, divider, sectionTitle, select, selectOption, backendRowInStatus, backendDotSmall, backendTextEllipsis, hoverBlock, hoverLine, button, sectionGrid8, sectionGrid10, wrapRow, consoleBox, consoleWrap, sidebarScrollHiddenCss, uploadButton, filePickerRow, hiddenFileInput, fileNameBox, uploadActionGrid, toggleButtonStyle} from "../styles/appStyles";
+import {
+  sidebar,
+  divider,
+  sectionTitle,
+  select,
+  selectOption,
+  backendRowInStatus,
+  backendDotSmall,
+  backendTextEllipsis,
+  hoverBlock,
+  hoverLine,
+  button,
+  sectionGrid8,
+  sectionGrid10,
+  wrapRow,
+  consoleBox,
+  consoleWrap,
+  sidebarScrollHiddenCss,
+  uploadButton,
+  filePickerRow,
+  hiddenFileInput,
+  fileNameBox,
+  uploadActionGrid,
+  toggleButtonStyle,
+} from "../styles/appStyles";
 
 const arr = (v) => (Array.isArray(v) ? v : []);
 const text = (v) =>
@@ -81,7 +105,27 @@ function FilePicker({ file, setFile, disabled, accept, testIdBase }) {
   );
 }
 
-function UploadSection({title, grid, file, setFile, onUpload, disabled, accept, markEventA, buttonText = "Upload", items, value = "", onSelect, emptyText = "empty", selectTitle = "", getValue = (x) => x, getLabel = (x) => String(x ?? ""), extra, testIdBase, allowClickWithoutFile = false}) {
+function UploadSection({
+  title,
+  grid,
+  file,
+  setFile,
+  onUpload,
+  disabled,
+  accept,
+  markEventA,
+  buttonText = "Upload",
+  items,
+  value = "",
+  onSelect,
+  emptyText = "empty",
+  selectTitle = "",
+  getValue = (x) => x,
+  getLabel = (x) => String(x ?? ""),
+  extra,
+  testIdBase,
+  allowClickWithoutFile = false,
+}) {
   const showSelect = items && onSelect;
   const uploadDisabled = disabled || (!allowClickWithoutFile && !file);
 
@@ -186,11 +230,58 @@ function LogConsole({ lines }) {
   );
 }
 
-export default function Sidebar({addLog, logs, reloadViewer, backendStatus, viewer, markEventA}) 
-{
-  const {setMainHeatmapUid, setLogoTrackUid, setMatrixUid, mainHeatmapUid, matrixUid, logoTrackUid, currentChromosome, lineMode, matrixEnabled, logoEnabled, sequenceEnabled, canActivateLines, heatmapUids, matrixUids, logoUids, chromosomes, savedCollections, selectSavedCollection, setChromosomeObject, addSavedCollection, toggleLineMode, toggleMatrixMode, toggleLogoMode, toggleSequenceMode, hoveredPosition, blockUI, setBlockUI} = viewer;
+export default function Sidebar({
+  addLog,
+  logs,
+  reloadViewer,
+  backendStatus,
+  viewer,
+  markEventA,
+}) {
+  const {
+    setMainHeatmapUid,
+    setLogoTrackUid,
+    setMatrixUid,
+    mainHeatmapUid,
+    matrixUid,
+    logoTrackUid,
+    currentChromosome,
+    lineMode,
+    matrixEnabled,
+    logoEnabled,
+    sequenceEnabled,
+    canActivateLines,
+    heatmapUids,
+    matrixUids,
+    logoUids,
+    chromosomes,
+    savedCollections,
+    selectSavedCollection,
+    setChromosomeObject,
+    addSavedCollection,
+    toggleLineMode,
+    toggleMatrixMode,
+    toggleLogoMode,
+    toggleSequenceMode,
+    hoveredPosition,
+    blockUI,
+    setBlockUI,
+  } = viewer;
 
-  const { dotColor: backendDotColor, text: backendText } = backendStatus;
+  const {
+    apiBackend = {},
+    higlassServer = {},
+  } = backendStatus ?? {};
+
+  const {
+    dotColor: apiBackendDotColor,
+    text: apiBackendText = "api backend not available",
+  } = apiBackend;
+
+  const {
+    dotColor: higlassDotColor,
+    text: higlassText = "HiGlass server: not reachable",
+  } = higlassServer;
 
   const [zipFile, setZipFile] = useState(null);
   const [heatmapFile, setHeatmapFile] = useState(null);
@@ -202,7 +293,16 @@ export default function Sidebar({addLog, logs, reloadViewer, backendStatus, view
   const sidebarRef = useRef(null);
   const hoveredPositionRef = useRef(hoveredPosition);
 
-  const { handleUpload, handleZIPUpload, handleFastaUpload } = useUploads({addLog, setMainHeatmapUid, setLogoTrackUid, setMatrixUid, setChromosomeObject, addSavedCollection, selectSavedCollection, setBlockUI});
+  const { handleUpload, handleZIPUpload, handleFastaUpload } = useUploads({
+    addLog,
+    setMainHeatmapUid,
+    setLogoTrackUid,
+    setMatrixUid,
+    setChromosomeObject,
+    addSavedCollection,
+    selectSavedCollection,
+    setBlockUI,
+  });
 
   useEffect(() => {
     hoveredPositionRef.current = hoveredPosition;
@@ -354,8 +454,8 @@ export default function Sidebar({addLog, logs, reloadViewer, backendStatus, view
               runToggle(toggleLogoMode, "logo button pressed -> toggleLogoMode()")
             }
             active={logoEnabled}
-            onText="logo tracks: on"
-            offText="logo tracks: off"
+            onText="logo tracks: shown"
+            offText="logo tracks: hidden/off"
             title={logoTrackUid ? `logoTrackUid=${logoTrackUid}` : ""}
             disabled={blockUI}
           />
@@ -383,8 +483,8 @@ export default function Sidebar({addLog, logs, reloadViewer, backendStatus, view
               runToggle(toggleMatrixMode, "matrix button pressed -> toggleMatrixMode()")
             }
             active={matrixEnabled}
-            onText="matrix tracks: on"
-            offText="matrix tracks: off"
+            onText="matrix tracks: shown"
+            offText="matrix tracks: hidden/off"
             title={matrixUid ? `matrixUid=${matrixUid}` : ""}
             disabled={blockUI}
           />
@@ -398,7 +498,7 @@ export default function Sidebar({addLog, logs, reloadViewer, backendStatus, view
               })
             }
             active={lineMode}
-            onText="line mode: on"
+            onText="line mode: active"
             offText="line mode: off"
             disabled={blockUI || !canActivateLines}
           />
@@ -430,8 +530,8 @@ export default function Sidebar({addLog, logs, reloadViewer, backendStatus, view
               )
             }
             active={sequenceEnabled}
-            onText="sequence track: on"
-            offText="sequence track: off"
+            onText="sequence track: shown"
+            offText="sequence track: hidden/off"
             disabled={blockUI}
           />
         </div>
@@ -497,10 +597,23 @@ export default function Sidebar({addLog, logs, reloadViewer, backendStatus, view
 
         <div style={divider} />
 
-        <div style={backendRowInStatus} data-testid="backend-status">
-          <span style={backendDotSmall(backendDotColor)} data-testid="backend-status-dot" />
-          <div style={backendTextEllipsis} data-testid="backend-status-text">
-            Backend availability: {backendText}
+        <div style={backendRowInStatus} data-testid="api-backend-status">
+          <span
+            style={backendDotSmall(apiBackendDotColor)}
+            data-testid="api-backend-status-dot"
+          />
+          <div style={backendTextEllipsis} data-testid="api-backend-status-text">
+            API Backend availability: {apiBackendText}
+          </div>
+        </div>
+
+        <div style={backendRowInStatus} data-testid="higlass-server-status">
+          <span
+            style={backendDotSmall(higlassDotColor)}
+            data-testid="higlass-server-status-dot"
+          />
+          <div style={backendTextEllipsis} data-testid="higlass-server-status-text">
+            {higlassText}
           </div>
         </div>
       </aside>

@@ -36,16 +36,7 @@ function parseChromosomeObject(text) {
   };
 }
 
-export function useUploads({
-  addLog,
-  setMainHeatmapUid,
-  setLogoTrackUid,
-  setMatrixUid,
-  setChromosomeObject,
-  addSavedCollection,
-  selectSavedCollection,
-  setBlockUI,
-}) {
+export function useUploads({addLog, setMainHeatmapUid, setLogoTrackUid, setMatrixUid, setChromosomeObject, addSavedCollection, selectSavedCollection, setBlockUI,}) {
 
   const log = useCallback((msg) => addLog?.(msg), [addLog]);
 
@@ -259,22 +250,8 @@ const handleZIPUpload = useCallback(
       setBlockUI?.(false);
     }
   },
-  [
-    addLog,
-    log,
-    setMainHeatmapUid,
-    setLogoTrackUid,
-    setMatrixUid,
-    setChromosomeObject,
-    addSavedCollection,
-    selectSavedCollection,
-    selectUid,
-  ]
+  [addLog, log, setMainHeatmapUid, setLogoTrackUid, setMatrixUid, setChromosomeObject, addSavedCollection, selectSavedCollection, selectUid,]
 );
 
-  return {
-    handleUpload,
-    handleFastaUpload,
-    handleZIPUpload,
-  };
+  return {handleUpload,handleFastaUpload,handleZIPUpload,};
 }
