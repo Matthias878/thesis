@@ -85,22 +85,3 @@ services:
       backend:
         condition: service_healthy
     command: ["sh", "-c", "nginx -g 'daemon off;'"]
-
-  frontend_test:
-    profiles: ["test"]
-    build:
-      context: ./Frontend
-      target: test
-    container_name: frontend_test
-    depends_on:
-      frontend:
-        condition: service_started
-    environment:
-      BASE_URL: http://frontend/
-      FOLDER_PATH: /tests/test_files
-      RESULTS_DIR: /tests/results
-      UPLOAD_URL_SUBSTRING: ""
-    volumes:
-      - ./Frontend/tests/test_files:/tests/test_files
-      - ./Frontend/tests/results:/tests/results
-    command: ["sh", "-c", "sleep infinity"]
