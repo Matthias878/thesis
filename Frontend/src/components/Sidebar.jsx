@@ -1,30 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useUploads } from "../api/fileUploadHandler";
-import {
-  sidebar,
-  divider,
-  sectionTitle,
-  select,
-  selectOption,
-  backendRowInStatus,
-  backendDotSmall,
-  backendTextEllipsis,
-  hoverBlock,
-  hoverLine,
-  button,
-  sectionGrid8,
-  sectionGrid10,
-  wrapRow,
-  consoleBox,
-  consoleWrap,
-  sidebarScrollHiddenCss,
-  uploadButton,
-  filePickerRow,
-  hiddenFileInput,
-  fileNameBox,
-  uploadActionGrid,
-  toggleButtonStyle,
-} from "../styles/appStyles";
+import {sidebar, divider, sectionTitle, select, selectOption, backendRowInStatus, backendDotSmall, backendTextEllipsis, hoverBlock, hoverLine, button, sectionGrid8, sectionGrid10, wrapRow, consoleBox, consoleWrap, sidebarScrollHiddenCss, uploadButton, filePickerRow, hiddenFileInput, fileNameBox, uploadActionGrid, toggleButtonStyle,} from "../styles/appStyles";
 
 const arr = (v) => (Array.isArray(v) ? v : []);
 const text = (v) =>
@@ -293,16 +269,7 @@ export default function Sidebar({
   const sidebarRef = useRef(null);
   const hoveredPositionRef = useRef(hoveredPosition);
 
-  const { handleUpload, handleZIPUpload, handleFastaUpload } = useUploads({
-    addLog,
-    setMainHeatmapUid,
-    setLogoTrackUid,
-    setMatrixUid,
-    setChromosomeObject,
-    addSavedCollection,
-    selectSavedCollection,
-    setBlockUI,
-  });
+  const { handleUpload, handleZIPUpload, handleFastaUpload } = useUploads({addLog, setMainHeatmapUid, setLogoTrackUid, setMatrixUid, setChromosomeObject, addSavedCollection, selectSavedCollection, setBlockUI,});
 
   useEffect(() => {
     hoveredPositionRef.current = hoveredPosition;
