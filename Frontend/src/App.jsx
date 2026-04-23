@@ -1,6 +1,5 @@
 import { useCallback, useState } from "react";
 import "higlass/dist/hglib.css";
-import "higlass-multivec";
 import { HiGlassComponent } from "higlass";
 import { useBackendStatus } from "./api/StatusSystem";
 import { useRenderViewConfig } from "./higlass/higlassViewConfigurator";
