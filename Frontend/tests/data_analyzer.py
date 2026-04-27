@@ -1,10 +1,14 @@
-import json
+import argparse
 import csv
+import json
 import sys
 from math import ceil
 from pathlib import Path
 from statistics import median, mean, stdev
 from datetime import datetime
+
+
+DEFAULT_EXCLUDED_CONTAINERS = {"frontend_test"}
 
 
 def load_data(json_path: Path) -> dict:
@@ -25,6 +29,7 @@ def parse_memory_to_mib(memory_usage: str) -> float:
       '1.2GiB / 3.283GiB'
       '512KiB / 3.283GiB'
       '123B / 3.283GiB'
+
     Returns the used memory in MiB.
     """
     used_part = memory_usage.split("/")[0].strip()
@@ -44,18 +49,23 @@ def parse_memory_to_mib(memory_usage: str) -> float:
     raise ValueError(f"Unsupported memory format: {memory_usage}")
 
 
-def load_container_stats(stats_path: Path):
+def load_container_stats(stats_path: Path, excluded_containers: set[str]):
     """
     Reads newline-delimited JSON docker stats logs.
+
     Returns:
-      {
-        timestamp1: combined_memory_mib,
-        timestamp2: combined_memory_mib,
-        ...
-      }
-    where combined memory is summed across all containers at the same timestamp.
+      included:
+        Sum of memory for containers NOT in excluded_containers.
+
+      excluded:
+        Sum of memory for containers in excluded_containers.
+
+      total:
+        Sum of memory for all containers.
     """
-    grouped_by_timestamp = {}
+    included_memory_by_timestamp = {}
+    excluded_memory_by_timestamp = {}
+    total_memory_by_timestamp = {}
 
     with stats_path.open("r", encoding="utf-8") as f:
         for line_number, line in enumerate(f, start=1):
@@ -66,13 +76,13 @@ def load_container_stats(stats_path: Path):
             try:
                 entry = json.loads(line)
             except json.JSONDecodeError:
-                # ignore truncated/bad trailing lines
                 continue
 
+            container = entry.get("container")
             timestamp_raw = entry.get("timestamp")
             memory_usage_raw = entry.get("memoryUsage")
 
-            if not timestamp_raw or not memory_usage_raw:
+            if not container or not timestamp_raw or not memory_usage_raw:
                 continue
 
             try:
@@ -81,26 +91,37 @@ def load_container_stats(stats_path: Path):
             except Exception:
                 continue
 
-            grouped_by_timestamp.setdefault(timestamp, 0.0)
-            grouped_by_timestamp[timestamp] += memory_mib
+            total_memory_by_timestamp.setdefault(timestamp, 0.0)
+            total_memory_by_timestamp[timestamp] += memory_mib
 
-    return grouped_by_timestamp
+            if container in excluded_containers:
+                excluded_memory_by_timestamp.setdefault(timestamp, 0.0)
+                excluded_memory_by_timestamp[timestamp] += memory_mib
+            else:
+                included_memory_by_timestamp.setdefault(timestamp, 0.0)
+                included_memory_by_timestamp[timestamp] += memory_mib
+
+    return {
+        "included": included_memory_by_timestamp,
+        "excluded": excluded_memory_by_timestamp,
+        "total": total_memory_by_timestamp,
+    }
 
 
-def max_combined_memory_during_attempt(upload_at: str, reload_at: str, combined_memory_by_timestamp: dict) -> float:
+def max_memory_during_attempt(upload_at: str, reload_at: str, memory_by_timestamp: dict) -> float:
     start = parse_iso_datetime(upload_at)
     end = parse_iso_datetime(reload_at)
 
     values = [
-        total_memory
-        for ts, total_memory in combined_memory_by_timestamp.items()
+        memory_mib
+        for ts, memory_mib in memory_by_timestamp.items()
         if start <= ts <= end
     ]
 
     return max(values) if values else 0.0
 
 
-def group_by_filename(events, combined_memory_by_timestamp=None):
+def group_by_filename(events, container_memory_maps=None):
     grouped = {}
 
     for event in events:
@@ -114,14 +135,28 @@ def group_by_filename(events, combined_memory_by_timestamp=None):
 
         attempt_record = {
             "delta": float(delta),
-            "max_combined_memory_mib": 0.0,
+            "max_app_memory_mib": 0.0,
+            "max_excluded_memory_mib": 0.0,
+            "max_total_memory_mib": 0.0,
         }
 
-        if combined_memory_by_timestamp and upload_at and reload_at:
-            attempt_record["max_combined_memory_mib"] = max_combined_memory_during_attempt(
+        if container_memory_maps and upload_at and reload_at:
+            attempt_record["max_app_memory_mib"] = max_memory_during_attempt(
                 upload_at,
                 reload_at,
-                combined_memory_by_timestamp,
+                container_memory_maps["included"],
+            )
+
+            attempt_record["max_excluded_memory_mib"] = max_memory_during_attempt(
+                upload_at,
+                reload_at,
+                container_memory_maps["excluded"],
+            )
+
+            attempt_record["max_total_memory_mib"] = max_memory_during_attempt(
+                upload_at,
+                reload_at,
+                container_memory_maps["total"],
             )
 
         grouped.setdefault(filename, []).append(attempt_record)
@@ -151,15 +186,25 @@ def compute_stats(times):
     }
 
 
-def write_summary(summary_path: Path, grouped: dict):
+def write_summary(summary_path: Path, grouped: dict, excluded_containers: set[str]):
+    excluded_label = ", ".join(sorted(excluded_containers)) if excluded_containers else "none"
+
     with summary_path.open("w", encoding="utf-8") as f:
+        f.write(f"Excluded containers from app memory result: {excluded_label}\n\n")
+
         for filename in sorted(grouped):
             attempts = grouped[filename]
+
             times = [a["delta"] for a in attempts]
-            memory_maxes = [a["max_combined_memory_mib"] for a in attempts]
+            app_memory_maxes = [a["max_app_memory_mib"] for a in attempts]
+            excluded_memory_maxes = [a["max_excluded_memory_mib"] for a in attempts]
+            total_memory_maxes = [a["max_total_memory_mib"] for a in attempts]
 
             stats = compute_stats(times)
-            memory_median = median(memory_maxes) if memory_maxes else 0.0
+
+            app_memory_median = median(app_memory_maxes) if app_memory_maxes else 0.0
+            excluded_memory_median = median(excluded_memory_maxes) if excluded_memory_maxes else 0.0
+            total_memory_median = median(total_memory_maxes) if total_memory_maxes else 0.0
 
             line = (
                 f"{filename} number of upload attempts: {stats['attempt_count']}, "
@@ -169,12 +214,15 @@ def write_summary(summary_path: Path, grouped: dict):
                 f"average time: {stats['average']:.6f}, "
                 f"stddev: {stats['stddev']:.6f}, "
                 f"p95: {stats['p95']:.6f}, "
-                f"median max combined memory per upload (MiB): {memory_median:.6f}"
+                f"median max app memory per upload excluding frontend_test (MiB): {app_memory_median:.6f}, "
+                f"median max excluded memory per upload (MiB): {excluded_memory_median:.6f}, "
+                f"median max total memory per upload including all containers (MiB): {total_memory_median:.6f}"
             )
+
             f.write(line + "\n")
 
 
-def write_csv(csv_path: Path, grouped: dict):
+def write_csv(csv_path: Path, grouped: dict, excluded_containers: set[str]):
     max_attempts = max(len(attempts) for attempts in grouped.values()) if grouped else 0
 
     header = [
@@ -186,12 +234,19 @@ def write_csv(csv_path: Path, grouped: dict):
         "average",
         "stddev",
         "p95",
-        "median_max_combined_memory_mib",
+        "median_max_app_memory_mib",
+        "median_max_excluded_memory_mib",
+        "median_max_total_memory_mib",
+        "excluded_containers",
     ]
 
     for i in range(1, max_attempts + 1):
         header.append(f"attempt_{i}_seconds")
-        header.append(f"attempt_{i}_max_combined_memory_mib")
+        header.append(f"attempt_{i}_max_app_memory_mib")
+        header.append(f"attempt_{i}_max_excluded_memory_mib")
+        header.append(f"attempt_{i}_max_total_memory_mib")
+
+    excluded_label = ",".join(sorted(excluded_containers))
 
     with csv_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
@@ -199,11 +254,17 @@ def write_csv(csv_path: Path, grouped: dict):
 
         for filename in sorted(grouped):
             attempts = grouped[filename]
+
             times = [a["delta"] for a in attempts]
-            memory_maxes = [a["max_combined_memory_mib"] for a in attempts]
+            app_memory_maxes = [a["max_app_memory_mib"] for a in attempts]
+            excluded_memory_maxes = [a["max_excluded_memory_mib"] for a in attempts]
+            total_memory_maxes = [a["max_total_memory_mib"] for a in attempts]
 
             stats = compute_stats(times)
-            memory_median = median(memory_maxes) if memory_maxes else 0.0
+
+            app_memory_median = median(app_memory_maxes) if app_memory_maxes else 0.0
+            excluded_memory_median = median(excluded_memory_maxes) if excluded_memory_maxes else 0.0
+            total_memory_median = median(total_memory_maxes) if total_memory_maxes else 0.0
 
             row = [
                 filename,
@@ -214,53 +275,110 @@ def write_csv(csv_path: Path, grouped: dict):
                 f"{stats['average']:.6f}",
                 f"{stats['stddev']:.6f}",
                 f"{stats['p95']:.6f}",
-                f"{memory_median:.6f}",
+                f"{app_memory_median:.6f}",
+                f"{excluded_memory_median:.6f}",
+                f"{total_memory_median:.6f}",
+                excluded_label,
             ]
 
             for attempt in attempts:
                 row.append(f"{attempt['delta']:.6f}")
-                row.append(f"{attempt['max_combined_memory_mib']:.6f}")
+                row.append(f"{attempt['max_app_memory_mib']:.6f}")
+                row.append(f"{attempt['max_excluded_memory_mib']:.6f}")
+                row.append(f"{attempt['max_total_memory_mib']:.6f}")
 
             missing_attempts = max_attempts - len(attempts)
             for _ in range(missing_attempts):
-                row.extend(["", ""])
+                row.extend(["", "", "", ""])
 
             writer.writerow(row)
 
 
-def main():
-    if len(sys.argv) not in (2, 3):
-        print("Usage:")
-        print("  python data_analyzer.py <input.json>")
-        print("  python data_analyzer.py <input.json> <container_stats.ndjson>")
-        sys.exit(1)
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Analyze upload timing data and optional Docker container stats."
+    )
 
-    input_path = Path(sys.argv[1])
+    parser.add_argument(
+        "input_json",
+        help="Input JSON file containing an 'events' array.",
+    )
+
+    parser.add_argument(
+        "container_stats",
+        nargs="?",
+        help="Optional newline-delimited JSON Docker stats file.",
+    )
+
+    parser.add_argument(
+        "--exclude-container",
+        action="append",
+        default=[],
+        help=(
+            "Additional container name to exclude from app memory. "
+            "frontend_test is always excluded automatically."
+        ),
+    )
+
+    return parser.parse_args()
+
+
+def build_excluded_container_set(args) -> set[str]:
+    excluded = set(DEFAULT_EXCLUDED_CONTAINERS)
+
+    for name in args.exclude_container:
+        name = name.strip()
+        if name:
+            excluded.add(name)
+
+    return excluded
+
+
+def main():
+    args = parse_args()
+
+    input_path = Path(args.input_json)
 
     if not input_path.exists():
         print(f"Error: file not found: {input_path}")
         sys.exit(1)
 
-    combined_memory_by_timestamp = None
-    if len(sys.argv) == 3:
-        stats_path = Path(sys.argv[2])
+    excluded_containers = build_excluded_container_set(args)
+
+    container_memory_maps = None
+
+    if args.container_stats:
+        stats_path = Path(args.container_stats)
+
         if not stats_path.exists():
             print(f"Error: stats file not found: {stats_path}")
             sys.exit(1)
-        combined_memory_by_timestamp = load_container_stats(stats_path)
+
+        container_memory_maps = load_container_stats(
+            stats_path,
+            excluded_containers=excluded_containers,
+        )
 
     data = load_data(input_path)
     events = data.get("events", [])
-    grouped = group_by_filename(events, combined_memory_by_timestamp)
+
+    grouped = group_by_filename(
+        events,
+        container_memory_maps=container_memory_maps,
+    )
 
     summary_path = input_path.with_name(input_path.stem + "_summary.txt")
     csv_path = input_path.with_name(input_path.stem + "_stats.csv")
 
-    write_summary(summary_path, grouped)
-    write_csv(csv_path, grouped)
+    write_summary(summary_path, grouped, excluded_containers)
+    write_csv(csv_path, grouped, excluded_containers)
 
     print(f"Summary written to: {summary_path}")
     print(f"CSV written to: {csv_path}")
+    print(
+        "App memory result excludes containers: "
+        + ", ".join(sorted(excluded_containers))
+    )
 
 
 if __name__ == "__main__":
